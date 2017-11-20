@@ -3,10 +3,15 @@
 #include <string.h>
 
 #include "../include/t2fs.h"
+#include "../include/apidisk.h"
+
+typedef struct t2fs_superbloco BootPartition;
+
+BootPartition bootPartition;
 
 int identify2(char *name, int size){
 
-  char* str ="\nAlfeu Uzai Tavares\nEduardo Bassani Chandelier\nFelipe Barbosa Tormes\n\n";
+  char* str ="\nAlfeu Uzai Tavares\nEduardo Bassani Chandelier 261591\nFelipe Barbosa Tormes\n\n";
 
   memcpy(name, str, size);
 	if (size == 0)
@@ -17,7 +22,31 @@ int identify2(char *name, int size){
 
 }
 
+void readBootPartition() {
+
+	unsigned char bootBuffer[SECTOR_SIZE];
+
+	if(read_sector(0, bootBuffer) != 0) {
+
+		printf("ERROR: Could not read boot partition.");
+
+	} else {
+
+		memcpy(&bootPartition, bootBuffer, sizeof(bootPartition));
+	}
+}
+
+void printBootPartition() {
+
+	printf("Boot ID:%.4s,Version:%d, Sectos/Superblock:%d, TotalSize:%d(bytes), %d(sectors), LogicalSector/Cluster:%d, StartFatSector:%d, StartClusterRoorDir:%d, FirstLogicalSectorOfDataBlock: %d \n",
+		bootPartition.id, bootPartition.version, bootPartition.SuperBlockSize, bootPartition.DiskSize, bootPartition.NofSectors, 
+		bootPartition.SectorsPerCluster, bootPartition.pFATSectorStart, bootPartition.RootDirCluster, bootPartition.DataSectorStart);
+}
+
 FILE2 create2 (char *filename) {
+
+	readBootPartition();
+	printBootPartition();
 
 	return 0;
 }
