@@ -2,13 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "t2fs.h"
+#include "../include/t2fs.h"
 
 int cidentify(char *name, int size){
-
-  /* Check if internal variables was initialized */
-	if(control.init == FALSE)
-		init();
 
   char* str ="\nAlfeu Uzai Tavares\nEduardo Bassani Chandelier\nFelipe Barbosa Tormes\n\n";
 
