@@ -32,6 +32,7 @@ int isBootPartitionRead = FALSE;
 int CLUSTER_SIZE;
 
 Record readCurrentRecordOfHandle(DIR2 handle);
+int searchFreeHandleListIndex();
 
 /*
     Dado que pathname é o caminho de um arquivo, separa o mesmo em caminho para
@@ -39,26 +40,35 @@ Record readCurrentRecordOfHandle(DIR2 handle);
 */
 void sepName(char* pathname, char* filepath, char* filename)
 {
-    char pathCopy[100];
-    strcpy(pathCopy, pathname);
-    char* fName = strtok(pathCopy, "/");
-    char path[] = "\0";
 
-    char* lastToken = fName;
-    do
-    {
-        char* currToken = strtok(NULL, "/");
-        if(currToken != NULL)
-        {
-            strcat(path, lastToken);
-            strcat(path, "/");
-            fName = currToken;
-        }
-        lastToken = currToken;
-    }while(lastToken != NULL);
+	if(strcmp(pathname, "/")==0){
 
-    strcpy(filepath, path);
-    strcpy(filename, fName);
+		strcpy(filepath, "/");
+    	strcpy(filename, "/");
+	
+	} else {
+
+		char pathCopy[10000];
+		strcpy(pathCopy, pathname);
+		char* fName = strtok(pathCopy, "/");
+		char path[] = "/\0";
+
+		char* lastToken = fName;
+		do
+		{
+			char* currToken = strtok(NULL, "/");
+			if(currToken != NULL)
+			{
+				strcat(path, lastToken);
+				strcat(path, "/");
+				fName = currToken;
+			}
+			lastToken = currToken;
+		}while(lastToken != NULL);
+
+		strcpy(filepath, path);
+		strcpy(filename, fName);
+	}
 }
 
 int identify2(char *name, int size){
@@ -162,6 +172,16 @@ void readCluster(int clusterIndex, unsigned char *buffer) {
 }
 
 void writeCluster(int clusterIndex, unsigned char *buffer) {
+
+	int startClusterSector = bootPartition.DataSectorStart;
+	int sectorPerCluster = bootPartition.SectorsPerCluster;
+	int sector = clusterIndex * sectorPerCluster + startClusterSector;
+	int i;
+
+	for(i=0; i<sectorPerCluster; i++) {
+
+		writeSector(sector+i, buffer+i*SECTOR_SIZE);
+	}
 }
 
 int fatToCluster(int fatIndex) {
@@ -303,8 +323,83 @@ int seek2 (FILE2 handle, unsigned int offset) {
 	return 0;
 }
 
+
+
 int mkdir2 (char *pathname) {
 	init();
+
+	//separating the path
+	char fatherPath[MAX_FILE_NAME_SIZE];
+	char name[MAX_FILE_NAME_SIZE];
+	sepName(pathname, fatherPath, name);
+
+	//opening father
+	int handleFather = opendir2(fatherPath);
+
+	DIRENT2 aux;
+	//till it find an empty space
+	while(readdir2(handleFather, &aux)==0);
+	handleList[handleFather].currentPointer -= sizeof(Record);//to get back to the previous empty space
+
+	//configure record of new dir
+	Record record;
+	record.TypeVal = TYPEVAL_DIRETORIO;
+	strcpy(record.name, name); 
+    
+	
+	//and the new fat entries
+	int freeFat = searchFatEntryOfType(CLUSTER_FREE);
+	changeFatEntryToType(freeFat, CLUSTER_EOF);
+	record.firstCluster = fatToCluster(freeFat);
+    
+	//size of the father and itself
+	record.bytesFileSize = 2*sizeof(record);
+	
+	//editing the father cluster
+	unsigned char clusterBuffer[CLUSTER_SIZE];
+	int fatEntryIndex = handleList[handleFather].firstFileFatEntry;
+	int clusterIndex = fatToCluster(fatEntryIndex);
+	readCluster(clusterIndex, clusterBuffer);
+	memcpy(clusterBuffer+handleList[handleFather].currentPointer, &record, sizeof(record));
+	writeCluster(clusterIndex, clusterBuffer);
+
+	//and the "." and ".." dir
+	Record itSelf = record;
+	strcpy(itSelf.name, ".");
+
+	char grandFatherPath[MAX_FILE_NAME_SIZE];
+
+	sepName(fatherPath, grandFatherPath, name);
+	int grandFatherHandle = opendir2(fatherPath);//grandFatherPath);
+	printf("handle: %d pash: %s\n", grandFatherHandle, grandFatherPath);
+
+	DIRENT2 aux2;
+	while(strcmp(aux2.name, ".")!=0) {
+
+		if(readdir2(grandFatherHandle, &aux2)!=0) {
+
+			break;
+		}
+	}
+	handleList[grandFatherHandle].currentPointer -= sizeof(Record);
+
+	Record grandFatherRecord = readCurrentRecordOfHandle(grandFatherHandle);
+	printf("%s\n", grandFatherRecord.name);
+	strcpy(grandFatherRecord.name, "..");
+
+	printf("%s\n", grandFatherRecord.name);
+
+	unsigned char newCluster[CLUSTER_SIZE];
+	//int newFatEntryIndex = handleList[grandFatherHandle].firstFileFatEntry;
+	//int newClusterIndex = fatToCluster(newFatEntryIndex);
+	int newClusterIndex = record.firstCluster;
+	memcpy(newCluster+	0*sizeof(record), &itSelf, sizeof(record));
+	memcpy(newCluster+	1*sizeof(record), &grandFatherRecord, sizeof(record));
+	writeCluster(newClusterIndex, newCluster);
+	
+	closedir2(grandFatherHandle);
+	closedir2(handleFather);
+
 	return 0;
 }
 
@@ -368,6 +463,12 @@ DIR2 opendir2 (char *pathname) {
 			handleList[handle].currentPointer -= sizeof(record);
 			record = readCurrentRecordOfHandle(handle);
 
+			if(record.TypeVal != TYPEVAL_DIRETORIO) {
+
+				printf("Error, %s is not a folder.\n", token);
+				return ERROR;
+			}
+
 			closedir2(handle);
 			handle = searchFreeHandleListIndex();
 			handleList[handle].firstFileFatEntry = clusterToFat(record.firstCluster);
@@ -376,7 +477,7 @@ DIR2 opendir2 (char *pathname) {
 
 		token = strtok(NULL, "/");
 	}
-	printf("return value: %d\n", handle);
+	
 	return handle;
 }
 
