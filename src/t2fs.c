@@ -10,6 +10,8 @@
 #define CLUSTER_DEFECTC 0xFFFFFFFE
 #define CLUSTER_EOF 0xFFFFFFFF
 
+#define ERROR -666
+
 typedef struct t2fs_superbloco BootPartition;
 
 BootPartition bootPartition;
@@ -42,12 +44,9 @@ void writeSector(int index, unsigned char *buffer) {
 	}
 }
 
-int readFatEntry(int index) {
 
-	return 0;
-}
-
-int searchAllFatEntry() {
+//we could use the readFatEntry function to make this cleaner, but it would be slower
+int searchFatEntryOfType(int type) {
 
 	int startFatSector = bootPartition.pFATSectorStart;
 	int endFatSector = bootPartition.DataSectorStart -1;
@@ -63,15 +62,45 @@ int searchAllFatEntry() {
 
 			int fatEntry;
 			memcpy(&fatEntry, buffer+sectorOffset*4, sizeof(fatEntry));
-			//printf("%d\n", fatEntry);
-		}
+			if(fatEntry==type) {
 
-		//writeSector(sector, buffer);
+				int returnIndex = (sector-startFatSector)*SECTOR_SIZE/4 + sectorOffset;
+				return returnIndex;
+			}
+		}
 	}
 
-	return 0;
+	return ERROR;
 }
 
+int readFatEntry(int index) {
+
+	int startFatSector = bootPartition.pFATSectorStart;
+	int sector = index / (SECTOR_SIZE/4) + startFatSector;
+	int offSet = index % (SECTOR_SIZE/4);
+
+	unsigned char buffer[SECTOR_SIZE];
+	readSector(sector, buffer);
+
+	int fatEntry;
+	memcpy(&fatEntry, buffer+offSet*4, sizeof(int));
+	
+	return fatEntry;
+}
+
+void changeFatEntryToType(int index, int type) {
+
+	int startFatSector = bootPartition.pFATSectorStart;
+	int sector = index / (SECTOR_SIZE/4) + startFatSector;
+	int offSet = index % (SECTOR_SIZE/4);
+
+	unsigned char buffer[SECTOR_SIZE];
+	readSector(sector, buffer);
+
+	memcpy(buffer+offSet*4, &type, sizeof(int));
+	
+	writeSector(sector, buffer);
+}
 
 void readBootPartition() {
 
@@ -98,8 +127,6 @@ FILE2 create2 (char *filename) {
 
 	readBootPartition();
 	printBootPartition();
-	readFatEntry(0);
-
 
 	return 0;
 }
