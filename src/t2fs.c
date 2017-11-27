@@ -22,7 +22,7 @@ typedef struct t2fs_record Record;
 typedef struct handle_struct {
 
 	int firstFileFatEntry;
-	int currentPath;
+	int currentPointer;
 } Handle;
 
 Handle handleList[10];
@@ -194,7 +194,7 @@ void initHandleList() {
 	for(i=0; i<10; i++) {
 
 		handleList[i].firstFileFatEntry = ERROR;
-		handleList[i].currentPath = ERROR;
+		handleList[i].currentPointer = ERROR;
 	}
 }
 
@@ -308,7 +308,7 @@ DIR2 opendir2 (char *pathname) {
 
 	int handle = searchFreeHandleListIndex();
 	handleList[handle].firstFileFatEntry = clusterToFat(bootPartition.RootDirCluster);
-	handleList[handle].currentPath = 0;
+	handleList[handle].currentPointer = 0;
 
 	while(token != NULL) {
 		
@@ -329,13 +329,13 @@ DIR2 opendir2 (char *pathname) {
 		} else {
 
 			Record record;
-			handleList[handle].currentPath -= sizeof(record);
+			handleList[handle].currentPointer -= sizeof(record);
 			record = readCurrentRecordOfHandle(handle);
 
 			closedir2(handle);
 			handle = searchFreeHandleListIndex();
 			handleList[handle].firstFileFatEntry = clusterToFat(record.firstCluster);
-			handleList[handle].currentPath = 0;
+			handleList[handle].currentPointer = 0;
 		}
 
 		token = strtok(NULL, "/");
@@ -354,7 +354,7 @@ Record readCurrentRecordOfHandle(DIR2 handle) {
 	readCluster(cluster, clusterBuffer);
 
 	Record rec;
-	memcpy(&rec, clusterBuffer+handleList[handle].currentPath, sizeof(rec));
+	memcpy(&rec, clusterBuffer+handleList[handle].currentPointer, sizeof(rec));
 
 	return rec;
 }
@@ -364,7 +364,7 @@ int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 	
 	Record rec = readCurrentRecordOfHandle(handle);
 
-	handleList[handle].currentPath += sizeof(rec);
+	handleList[handle].currentPointer += sizeof(rec);
 
 	if(rec.TypeVal == TYPEVAL_REGULAR || rec.TypeVal == TYPEVAL_DIRETORIO) {
 	
@@ -381,7 +381,7 @@ int closedir2 (DIR2 handle) {
 	init();
 	
 	handleList[handle].firstFileFatEntry = ERROR;
-	handleList[handle].currentPath = ERROR;
+	handleList[handle].currentPointer = ERROR;
 
 	return 0;
 }
