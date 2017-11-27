@@ -5,6 +5,11 @@
 #include "../include/t2fs.h"
 #include "../include/apidisk.h"
 
+#define CLUSTER_FREE 0x00000000
+#define CLUSTER_CAN_NOT_EXIST 0x00000001
+#define CLUSTER_DEFECTC 0xFFFFFFFE
+#define CLUSTER_EOF 0xFFFFFFFF
+
 typedef struct t2fs_superbloco BootPartition;
 
 BootPartition bootPartition;
@@ -19,8 +24,54 @@ int identify2(char *name, int size){
 	else
 		name[size-1] = '\0';
 	return 0;
-
 }
+
+void readSector(int index, unsigned char *buffer) {
+	
+	if(read_sector(index, buffer) != 0) {
+
+		printf("ERROR: Could not read sector.");
+	}
+}
+
+void writeSector(int index, unsigned char *buffer) {
+	
+	if(write_sector(index, buffer) != 0) {
+
+		printf("ERROR: Could not write sector.");
+	}
+}
+
+int readFatEntry(int index) {
+
+	return 0;
+}
+
+int searchAllFatEntry() {
+
+	int startFatSector = bootPartition.pFATSectorStart;
+	int endFatSector = bootPartition.DataSectorStart -1;
+	int sector;
+	for(sector = startFatSector; sector <= endFatSector; sector++) {
+
+		unsigned char buffer[SECTOR_SIZE];
+		readSector(sector, buffer);
+		
+		int sectorOffset;
+		int numberOfFatEntries = SECTOR_SIZE/4;
+		for(sectorOffset = 0; sectorOffset < numberOfFatEntries; sectorOffset++) {
+
+			int fatEntry;
+			memcpy(&fatEntry, buffer+sectorOffset*4, sizeof(fatEntry));
+			//printf("%d\n", fatEntry);
+		}
+
+		//writeSector(sector, buffer);
+	}
+
+	return 0;
+}
+
 
 void readBootPartition() {
 
@@ -47,6 +98,8 @@ FILE2 create2 (char *filename) {
 
 	readBootPartition();
 	printBootPartition();
+	readFatEntry(0);
+
 
 	return 0;
 }
