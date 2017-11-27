@@ -33,6 +33,34 @@ int CLUSTER_SIZE;
 
 Record readCurrentRecordOfHandle(DIR2 handle);
 
+/*
+    Dado que pathname é o caminho de um arquivo, separa o mesmo em caminho para
+    o diretório e nome do arquivo.
+*/
+void sepName(char* pathname, char* filepath, char* filename)
+{
+    char pathCopy[100];
+    strcpy(pathCopy, pathname);
+    char* fName = strtok(pathCopy, "/");
+    char path[] = "\0";
+
+    char* lastToken = fName;
+    do
+    {
+        char* currToken = strtok(NULL, "/");
+        if(currToken != NULL)
+        {
+            strcat(path, lastToken);
+            strcat(path, "/");
+            fName = currToken;
+        }
+        lastToken = currToken;
+    }while(lastToken != NULL);
+
+    strcpy(filepath, path);
+    strcpy(filename, fName);
+}
+
 int identify2(char *name, int size){
 
   char* str ="\nAlfeu Uzai Tavares\nEduardo Bassani Chandelier 261591\nFelipe Barbosa Tormes\n\n";
@@ -46,7 +74,7 @@ int identify2(char *name, int size){
 }
 
 void readSector(int index, unsigned char *buffer) {
-	
+
 	if(read_sector(index, buffer) != 0) {
 
 		printf("ERROR: Could not read sector %d.\n", index);
@@ -54,7 +82,7 @@ void readSector(int index, unsigned char *buffer) {
 }
 
 void writeSector(int index, unsigned char *buffer) {
-	
+
 	if(write_sector(index, buffer) != 0) {
 
 		printf("ERROR: Could not write sector %d.\n", index);
@@ -71,7 +99,7 @@ int searchFatEntryOfType(int type) {
 
 		unsigned char buffer[SECTOR_SIZE];
 		readSector(sector, buffer);
-		
+
 		int sectorOffset;
 		int numberOfFatEntries = SECTOR_SIZE/4;
 		for(sectorOffset = 0; sectorOffset < numberOfFatEntries; sectorOffset++) {
@@ -100,7 +128,7 @@ int readFatEntry(int index) {
 
 	int fatEntry;
 	memcpy(&fatEntry, buffer+offSet*4, sizeof(int));
-	
+
 	return fatEntry;
 }
 
@@ -114,7 +142,7 @@ void changeFatEntryToType(int index, int type) {
 	readSector(sector, buffer);
 
 	memcpy(buffer+offSet*4, &type, sizeof(int));
-	
+
 	writeSector(sector, buffer);
 }
 
@@ -144,7 +172,7 @@ int fatToCluster(int fatIndex) {
 	}
 
 	int i, defectedFatEntry=0;
-	
+
 	for(i=0; i<fatIndex; i++) {
 
 		if(readFatEntry(i)==CLUSTER_DEFECTC) {
@@ -167,9 +195,9 @@ int clusterToFat(int clusterIndex) {
 			clusterIndex--;
 		}
 	}
-	
+
 	fatIndex--;
-	
+
 	return fatIndex;
 }
 
@@ -211,7 +239,7 @@ void init() {
 void printBootPartition() {
 
 	printf("Boot ID:%.4s,Version:%d, Sectos/Superblock:%d, TotalSize:%d(bytes), %d(sectors), LogicalSector/Cluster:%d, StartFatSector:%d, StartClusterRoorDir:%d, FirstLogicalSectorOfDataBlock: %d \n",
-		bootPartition.id, bootPartition.version, bootPartition.SuperBlockSize, bootPartition.DiskSize, bootPartition.NofSectors, 
+		bootPartition.id, bootPartition.version, bootPartition.SuperBlockSize, bootPartition.DiskSize, bootPartition.NofSectors,
 		bootPartition.SectorsPerCluster, bootPartition.pFATSectorStart, bootPartition.RootDirCluster, bootPartition.DataSectorStart);
 }
 
@@ -234,16 +262,24 @@ FILE2 create2 (char *filename) {
 
 int delete2 (char *filename) {
 	init();
-	return 0;	
+	return 0;
 }
 
 FILE2 open2 (char *filename) {
 	init();
-	return 0;
+
+    char filepath[100];
+    char fname[100];
+    sepName(filename, filepath, fname);
+    printf("\nfull path: %s", filename);
+    printf("\nfile path: %s", filepath);
+    printf("\nfile name: %s\n", fname);
+
+	return -1;
 }
 
 int close2 (FILE2 handle) {
-	init();	
+	init();
 	return 0;
 }
 
@@ -291,13 +327,13 @@ int searchFreeHandleListIndex() {
 
 	int i;
 	for(i=0; i<10; i++) {
-		
+
 		if(handleList[i].firstFileFatEntry == ERROR) {
 
 			return i;
 		}
 	}
-	
+
 	return ERROR;
 }
 
@@ -311,7 +347,7 @@ DIR2 opendir2 (char *pathname) {
 	handleList[handle].currentPointer = 0;
 
 	while(token != NULL) {
-		
+
 		DIRENT2 aux;
 		while(strcmp(aux.name, token)!=0) {
 
@@ -320,12 +356,12 @@ DIR2 opendir2 (char *pathname) {
 				break;
 			}
 		}
-		
+
 		if(strcmp(aux.name, token)!=0) {
 
 			printf("Could not find path on %s folder.\n", token);
 			return ERROR;
-		
+
 		} else {
 
 			Record record;
@@ -361,13 +397,13 @@ Record readCurrentRecordOfHandle(DIR2 handle) {
 
 int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 	init();
-	
+
 	Record rec = readCurrentRecordOfHandle(handle);
 
 	handleList[handle].currentPointer += sizeof(rec);
 
 	if(rec.TypeVal == TYPEVAL_REGULAR || rec.TypeVal == TYPEVAL_DIRETORIO) {
-	
+
 		dentry->fileSize = rec.bytesFileSize;
 		dentry->fileType = rec.TypeVal;
 		strcpy(dentry->name, rec.name);
@@ -379,7 +415,7 @@ int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 
 int closedir2 (DIR2 handle) {
 	init();
-	
+
 	handleList[handle].firstFileFatEntry = ERROR;
 	handleList[handle].currentPointer = ERROR;
 
