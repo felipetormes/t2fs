@@ -12,6 +12,9 @@
 
 #define ERROR -666
 
+#define TRUE 1
+#define FALSE 0
+
 typedef struct t2fs_superbloco BootPartition;
 
 typedef struct t2fs_record Record;
@@ -25,7 +28,10 @@ typedef struct handle_struct {
 Handle handleList[10];
 
 BootPartition bootPartition;
+int isBootPartitionRead = FALSE;
 int CLUSTER_SIZE;
+
+Record readCurrentRecordOfHandle(DIR2 handle);
 
 int identify2(char *name, int size){
 
@@ -194,8 +200,12 @@ void initHandleList() {
 
 void init() {
 
-	readBootPartition();
-	initHandleList();
+	if(isBootPartitionRead==FALSE) {
+
+		readBootPartition();
+		initHandleList();
+		isBootPartitionRead=TRUE;
+	}
 }
 
 void printBootPartition() {
@@ -217,64 +227,63 @@ void printFatEntry(int entryValue) {
 }
 
 FILE2 create2 (char *filename) {
-
 	init();
 
 	return 0;
 }
 
 int delete2 (char *filename) {
-
+	init();
 	return 0;	
 }
 
 FILE2 open2 (char *filename) {
-
+	init();
 	return 0;
 }
 
 int close2 (FILE2 handle) {
-	
+	init();	
 	return 0;
 }
 
 int read2 (FILE2 handle, char *buffer, int size) {
-	
+	init();
 	return 0;
 }
 
 int write2 (FILE2 handle, char *buffer, int size) {
-	
+	init();
 	return 0;
 }
 
 int truncate2 (FILE2 handle) {
-
+	init();
 	return 0;
 }
 
 int seek2 (FILE2 handle, unsigned int offset) {
-	
+	init();
 	return 0;
 }
 
 int mkdir2 (char *pathname) {
-	
+	init();
 	return 0;
 }
 
 int rmdir2 (char *pathname) {
-	
+	init();
 	return 0;
 }
 
 int chdir2 (char *pathname) {
-	
+	init();
 	return 0;
 }
 
 int getcwd2 (char *pathname, int size) {
-	
+	init();
 	return 0;
 }
 
@@ -293,21 +302,50 @@ int searchFreeHandleListIndex() {
 }
 
 DIR2 opendir2 (char *pathname) {
-	
-	if(strcmp(pathname, "/")==0) {
+	init();
 
-		int handle = searchFreeHandleListIndex();
-		handleList[handle].firstFileFatEntry = clusterToFat(bootPartition.RootDirCluster);
-		handleList[handle].currentPath = 0;
+	char *token = strtok(pathname, "/");
+
+	int handle = searchFreeHandleListIndex();
+	handleList[handle].firstFileFatEntry = clusterToFat(bootPartition.RootDirCluster);
+	handleList[handle].currentPath = 0;
+
+	while(token != NULL) {
 		
-		return handle;
-	}
+		DIRENT2 aux;
+		while(strcmp(aux.name, token)!=0) {
 
-	return 0;
+			if(readdir2(handle, &aux)!=0) {
+
+				break;
+			}
+		}
+		
+		if(strcmp(aux.name, token)!=0) {
+
+			printf("Could not find path on %s folder.\n", token);
+			return ERROR;
+		
+		} else {
+
+			Record record;
+			handleList[handle].currentPath -= sizeof(record);
+			record = readCurrentRecordOfHandle(handle);
+
+			closedir2(handle);
+			handle = searchFreeHandleListIndex();
+			handleList[handle].firstFileFatEntry = clusterToFat(record.firstCluster);
+			handleList[handle].currentPath = 0;
+		}
+
+		token = strtok(NULL, "/");
+	}
+	printf("return value: %d\n", handle);
+	return handle;
 }
 
-int readdir2 (DIR2 handle, DIRENT2 *dentry) {
-	
+Record readCurrentRecordOfHandle(DIR2 handle) {
+
 	int fatIndex = handleList[handle].firstFileFatEntry;
 
 	int cluster = fatToCluster(fatIndex);
@@ -318,10 +356,18 @@ int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 	Record rec;
 	memcpy(&rec, clusterBuffer+handleList[handle].currentPath, sizeof(rec));
 
+	return rec;
+}
+
+int readdir2 (DIR2 handle, DIRENT2 *dentry) {
+	init();
+	
+	Record rec = readCurrentRecordOfHandle(handle);
+
 	handleList[handle].currentPath += sizeof(rec);
 
 	if(rec.TypeVal == TYPEVAL_REGULAR || rec.TypeVal == TYPEVAL_DIRETORIO) {
-
+	
 		dentry->fileSize = rec.bytesFileSize;
 		dentry->fileType = rec.TypeVal;
 		strcpy(dentry->name, rec.name);
@@ -332,6 +378,7 @@ int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 }
 
 int closedir2 (DIR2 handle) {
+	init();
 	
 	handleList[handle].firstFileFatEntry = ERROR;
 	handleList[handle].currentPath = ERROR;
