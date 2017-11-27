@@ -15,6 +15,8 @@
 #define TRUE 1
 #define FALSE 0
 
+int searchFreeHandleListIndex();
+
 typedef struct t2fs_superbloco BootPartition;
 
 typedef struct t2fs_record Record;
@@ -42,7 +44,7 @@ void sepName(char* pathname, char* filepath, char* filename)
     char pathCopy[100];
     strcpy(pathCopy, pathname);
     char* fName = strtok(pathCopy, "/");
-    char path[] = "\0";
+    char path[] = "/\0";
 
     char* lastToken = fName;
     do
@@ -59,6 +61,22 @@ void sepName(char* pathname, char* filepath, char* filename)
 
     strcpy(filepath, path);
     strcpy(filename, fName);
+}
+
+// Dado um currentPointer retorna o indice do cluster correspondente.
+int currentPointerToClusterIndex(Handle handle) {
+
+    // Computa total de clusters necessários para chegar ao ponteiro atual.
+    int nClusters = handle.currentPointer / CLUSTER_SIZE;
+
+    // Navega FAT até encontrar índice do cluster atual.
+    int currFat = handle.firstFileFatEntry;
+    for(int nCluster = 0; nCluster != nClusters; ++nCluster)
+    {
+        currFat = readFatEntry(currFat);
+    }
+
+    return fatToCluster(currFat);
 }
 
 int identify2(char *name, int size){
@@ -216,6 +234,15 @@ void readBootPartition() {
 	}
 }
 
+void printRecord(Record r)
+{
+    printf("\nPrinting record...\n");
+    printf("\nTypeVal: %d\n", r.TypeVal);
+    printf("\nname: %s\n", r.name);
+    printf("\nbytesFileSize: %d", r.bytesFileSize);
+    printf("\nfirstCluster: %d\n\n", r.firstCluster);
+}
+
 void initHandleList() {
 
 	int i;
@@ -271,15 +298,66 @@ FILE2 open2 (char *filename) {
     char filepath[100];
     char fname[100];
     sepName(filename, filepath, fname);
-    printf("\nfull path: %s", filename);
-    printf("\nfile path: %s", filepath);
-    printf("\nfile name: %s\n", fname);
 
-	return -1;
+    // Confere diretório pai.
+    DIR2 dirHandle = opendir2(filepath);
+    if(dirHandle < 0)
+    {
+        printf("\nInvalid file path: %s\n", filename);
+        closedir2(dirHandle);
+        return -1;
+    }
+
+    // Procura arquivo.
+    DIRENT2 dirEnt;
+    int fileFound = 0;
+    int dirEntNum = 0;  // Número do record do arquivo, inicia por 1.
+    while(readdir2(dirHandle, &dirEnt) != -END_OF_DIR)
+    {
+        ++dirEntNum;
+        if(strcmp(dirEnt.name, fname) == 0)
+        {
+            fileFound = 1;
+            break;
+        }
+    }
+    if(fileFound == 0)
+    {
+        printf("\nCould not find file %s in path %s\n", fname, filepath);
+        closedir2(dirHandle);
+        return -1;
+    }
+
+    // Verifica tipo.
+    if(dirEnt.fileType != 0x01)
+    {
+        printf("\nFile %s is a directory\n", filename);
+        closedir2(dirHandle);
+        return -1;
+    }
+
+    // Carrega Record do arquivo.
+    Record record;
+    handleList[dirHandle].currentPointer -= sizeof(Record);
+    for(int i = 0; i < dirEntNum - 1; ++i)
+    {
+        record = readCurrentRecordOfHandle(dirHandle);
+    }
+    closedir2(dirHandle);
+
+    // Cria handle para arquivo.
+    int handle = searchFreeHandleListIndex();
+    handleList[handle].firstFileFatEntry = clusterToFat(record.firstCluster);
+    handleList[handle].currentPointer = 0;
+	return handle;
 }
 
 int close2 (FILE2 handle) {
 	init();
+
+    handleList[handle].firstFileFatEntry = ERROR;
+    handleList[handle].currentPointer = ERROR;
+
 	return 0;
 }
 
