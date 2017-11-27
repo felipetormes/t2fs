@@ -13,7 +13,16 @@
 #define ERROR -666
 
 typedef struct t2fs_superbloco BootPartition;
+
 typedef struct t2fs_record Record;
+
+typedef struct handle_struct {
+
+	int firstFileFatEntry;
+	int currentPath;
+} Handle;
+
+Handle handleList[10];
 
 BootPartition bootPartition;
 int CLUSTER_SIZE;
@@ -34,7 +43,7 @@ void readSector(int index, unsigned char *buffer) {
 	
 	if(read_sector(index, buffer) != 0) {
 
-		printf("ERROR: Could not read sector.");
+		printf("ERROR: Could not read sector %d.\n", index);
 	}
 }
 
@@ -42,7 +51,7 @@ void writeSector(int index, unsigned char *buffer) {
 	
 	if(write_sector(index, buffer) != 0) {
 
-		printf("ERROR: Could not write sector.");
+		printf("ERROR: Could not write sector %d.\n", index);
 	}
 }
 
@@ -173,6 +182,22 @@ void readBootPartition() {
 	}
 }
 
+void initHandleList() {
+
+	int i;
+	for(i=0; i<10; i++) {
+
+		handleList[i].firstFileFatEntry = ERROR;
+		handleList[i].currentPath = ERROR;
+	}
+}
+
+void init() {
+
+	readBootPartition();
+	initHandleList();
+}
+
 void printBootPartition() {
 
 	printf("Boot ID:%.4s,Version:%d, Sectos/Superblock:%d, TotalSize:%d(bytes), %d(sectors), LogicalSector/Cluster:%d, StartFatSector:%d, StartClusterRoorDir:%d, FirstLogicalSectorOfDataBlock: %d \n",
@@ -193,8 +218,7 @@ void printFatEntry(int entryValue) {
 
 FILE2 create2 (char *filename) {
 
-	readBootPartition();
-	printBootPartition();
+	init();
 
 	return 0;
 }
@@ -254,11 +278,29 @@ int getcwd2 (char *pathname, int size) {
 	return 0;
 }
 
+int searchFreeHandleListIndex() {
+
+	int i;
+	for(i=0; i<10; i++) {
+		
+		if(handleList[i].firstFileFatEntry == ERROR) {
+
+			return i;
+		}
+	}
+	
+	return ERROR;
+}
+
 DIR2 opendir2 (char *pathname) {
 	
 	if(strcmp(pathname, "/")==0) {
 
-		return clusterToFat(bootPartition.RootDirCluster);
+		int handle = searchFreeHandleListIndex();
+		handleList[handle].firstFileFatEntry = clusterToFat(bootPartition.RootDirCluster);
+		handleList[handle].currentPath = 0;
+		
+		return handle;
 	}
 
 	return 0;
@@ -266,25 +308,17 @@ DIR2 opendir2 (char *pathname) {
 
 int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 	
-	static int offset;
-	static int currentHandle = ERROR;
+	int fatIndex = handleList[handle].firstFileFatEntry;
 
-	if(handle != currentHandle) {
-
-		offset = 0;
-		currentHandle = handle;
-	}
-
-	int cluster = fatToCluster(handle);
+	int cluster = fatToCluster(fatIndex);
 
 	unsigned char clusterBuffer[CLUSTER_SIZE];
 	readCluster(cluster, clusterBuffer);
 
 	Record rec;
+	memcpy(&rec, clusterBuffer+handleList[handle].currentPath, sizeof(rec));
 
-	memcpy(&rec, clusterBuffer+offset*sizeof(rec), sizeof(rec));
-
-	offset++;
+	handleList[handle].currentPath += sizeof(rec);
 
 	if(rec.TypeVal == TYPEVAL_REGULAR || rec.TypeVal == TYPEVAL_DIRETORIO) {
 
@@ -299,5 +333,8 @@ int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 
 int closedir2 (DIR2 handle) {
 	
+	handleList[handle].firstFileFatEntry = ERROR;
+	handleList[handle].currentPath = ERROR;
+
 	return 0;
 }
