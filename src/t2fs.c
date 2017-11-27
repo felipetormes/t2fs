@@ -36,6 +36,8 @@ int CLUSTER_SIZE;
 Record readCurrentRecordOfHandle(DIR2 handle);
 int searchFreeHandleListIndex();
 void writeCurrentRecordOfHandle(DIR2 handle, Record record);
+int readFatEntry(int index);
+int fatToCluster(int fatIndex);
 
 /*
     Dado que pathname é o caminho de um arquivo, separa o mesmo em caminho para
@@ -472,6 +474,61 @@ int mkdir2 (char *pathname) {
 
 int rmdir2 (char *pathname) {
 	init();
+
+	//separating the path
+	char fatherPath[MAX_FILE_NAME_SIZE];
+	char name[MAX_FILE_NAME_SIZE];
+	sepName(pathname, fatherPath, name);
+
+	//opening father
+	int handleFather = opendir2(fatherPath);
+
+	DIRENT2 aux;
+	//till we find the one
+	while(strcmp(aux.name, name)) {
+
+		if(readdir2(handleFather, &aux)!=0) {
+			
+			break;
+		}
+	}
+	if(strcmp(aux.name, name)!=0) {
+
+		printf("ERROR, you cant delete a folder that doesn't exist.\n");
+	}
+
+	handleList[handleFather].currentPointer -= sizeof(Record);//to get back to the previous empty space
+
+	Record fatherRecord = readCurrentRecordOfHandle(handleFather);
+	//fatherRecord.firstCluster use this to delete fat entriess!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+
+	//guarda currentPointer
+	int middlePointer = handleList[handleFather].currentPointer;
+
+	//pego o ultimo file/folder
+	handleList[handleFather].currentPointer = 0;
+	while(readdir2(handleFather, &aux)==0);
+	handleList[handleFather].currentPointer -= 2*sizeof(Record);//to get back to the previous NOT empty space
+	Record lastRecord = readCurrentRecordOfHandle(handleFather);
+
+	Record record;
+	record.TypeVal = TYPEVAL_INVALIDO;
+	
+	if(handleList[handleFather].currentPointer == middlePointer) {
+
+		//seto ele pra free/invalido
+		writeCurrentRecordOfHandle(handleFather, record);
+	
+	} else {
+
+		//seto ele pra free/invalido
+		writeCurrentRecordOfHandle(handleFather, record);
+
+		//volto pro index e seto o ultim, pra n deixar falhas
+		handleList[handleFather].currentPointer = middlePointer;
+		writeCurrentRecordOfHandle(handleFather, lastRecord);
+	}
+
 	return 0;
 }
 
@@ -577,8 +634,6 @@ void writeCurrentRecordOfHandle(DIR2 handle, Record record) {
 
 	writeCluster(cluster, clusterBuffer);
 }
-
-
 
 int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 	init();
