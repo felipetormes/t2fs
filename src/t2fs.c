@@ -102,6 +102,43 @@ void changeFatEntryToType(int index, int type) {
 	writeSector(sector, buffer);
 }
 
+int fatToCluster(int fatIndex) {
+
+	if(readFatEntry(fatIndex)==CLUSTER_DEFECTC) {
+
+		printf("ERROR, Can not convert defect fat entry to cluster.\n");
+	}
+
+	int i, defectedFatEntry=0;
+	
+	for(i=0; i<fatIndex; i++) {
+
+		if(readFatEntry(i)==CLUSTER_DEFECTC) {
+
+			defectedFatEntry++;
+		}
+	}
+
+	return fatIndex - defectedFatEntry;
+}
+
+int clusterToFat(int clusterIndex) {
+
+	int fatIndex = 0;
+
+	while(clusterIndex >= 0) {
+
+		if(readFatEntry(fatIndex++) != CLUSTER_DEFECTC) {
+
+			clusterIndex--;
+		}
+	}
+	
+	fatIndex--;
+	
+	return fatIndex;
+}
+
 void readBootPartition() {
 
 	unsigned char bootBuffer[SECTOR_SIZE];
@@ -121,6 +158,17 @@ void printBootPartition() {
 	printf("Boot ID:%.4s,Version:%d, Sectos/Superblock:%d, TotalSize:%d(bytes), %d(sectors), LogicalSector/Cluster:%d, StartFatSector:%d, StartClusterRoorDir:%d, FirstLogicalSectorOfDataBlock: %d \n",
 		bootPartition.id, bootPartition.version, bootPartition.SuperBlockSize, bootPartition.DiskSize, bootPartition.NofSectors, 
 		bootPartition.SectorsPerCluster, bootPartition.pFATSectorStart, bootPartition.RootDirCluster, bootPartition.DataSectorStart);
+}
+
+void printFatEntry(int entryValue) {
+
+	switch(entryValue) {
+
+		case CLUSTER_FREE:				printf("CLUSTER_FREE\n");break;
+		case CLUSTER_CAN_NOT_EXIST:		printf("CLUSTER_CAN_NOT_EXIST\n");break;
+		case CLUSTER_DEFECTC:			printf("CLUSTER_DEFECTC\n");break;
+		case CLUSTER_EOF:				printf("CLUSTER_EOF\n");break;
+	}
 }
 
 FILE2 create2 (char *filename) {
