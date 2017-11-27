@@ -13,8 +13,10 @@
 #define ERROR -666
 
 typedef struct t2fs_superbloco BootPartition;
+typedef struct t2fs_record Record;
 
 BootPartition bootPartition;
+int CLUSTER_SIZE;
 
 int identify2(char *name, int size){
 
@@ -43,7 +45,6 @@ void writeSector(int index, unsigned char *buffer) {
 		printf("ERROR: Could not write sector.");
 	}
 }
-
 
 //we could use the readFatEntry function to make this cleaner, but it would be slower
 int searchFatEntryOfType(int type) {
@@ -102,6 +103,24 @@ void changeFatEntryToType(int index, int type) {
 	writeSector(sector, buffer);
 }
 
+void readCluster(int clusterIndex, unsigned char *buffer) {
+
+	int startClusterSector = bootPartition.DataSectorStart;
+	int sectorPerCluster = bootPartition.SectorsPerCluster;
+	int sector = clusterIndex * sectorPerCluster + startClusterSector;
+	int i;
+
+	for(i=0; i<sectorPerCluster; i++) {
+
+		unsigned char bufferAux[SECTOR_SIZE];
+		readSector(sector+i, bufferAux);
+		memcpy(buffer+i*SECTOR_SIZE, bufferAux, SECTOR_SIZE);
+	}
+}
+
+void writeCluster(int clusterIndex, unsigned char *buffer) {
+}
+
 int fatToCluster(int fatIndex) {
 
 	if(readFatEntry(fatIndex)==CLUSTER_DEFECTC) {
@@ -150,6 +169,7 @@ void readBootPartition() {
 	} else {
 
 		memcpy(&bootPartition, bootBuffer, sizeof(bootPartition));
+		CLUSTER_SIZE = SECTOR_SIZE * bootPartition.SectorsPerCluster;
 	}
 }
 
@@ -236,12 +256,45 @@ int getcwd2 (char *pathname, int size) {
 
 DIR2 opendir2 (char *pathname) {
 	
+	if(strcmp(pathname, "/")==0) {
+
+		return clusterToFat(bootPartition.RootDirCluster);
+	}
+
 	return 0;
 }
 
 int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 	
-	return 0;
+	static int offset;
+	static int currentHandle = ERROR;
+
+	if(handle != currentHandle) {
+
+		offset = 0;
+		currentHandle = handle;
+	}
+
+	int cluster = fatToCluster(handle);
+
+	unsigned char clusterBuffer[CLUSTER_SIZE];
+	readCluster(cluster, clusterBuffer);
+
+	Record rec;
+
+	memcpy(&rec, clusterBuffer+offset*sizeof(rec), sizeof(rec));
+
+	offset++;
+
+	if(rec.TypeVal == TYPEVAL_REGULAR || rec.TypeVal == TYPEVAL_DIRETORIO) {
+
+		dentry->fileSize = rec.bytesFileSize;
+		dentry->fileType = rec.TypeVal;
+		strcpy(dentry->name, rec.name);
+		return 0;
+	}
+
+	return -END_OF_DIR;
 }
 
 int closedir2 (DIR2 handle) {
