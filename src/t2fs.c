@@ -33,6 +33,7 @@ int CLUSTER_SIZE;
 
 Record readCurrentRecordOfHandle(DIR2 handle);
 int searchFreeHandleListIndex();
+void writeCurrentRecordOfHandle(DIR2 handle, Record record);
 
 /*
     Dado que pathname é o caminho de um arquivo, separa o mesmo em caminho para
@@ -165,9 +166,10 @@ void readCluster(int clusterIndex, unsigned char *buffer) {
 
 	for(i=0; i<sectorPerCluster; i++) {
 
-		unsigned char bufferAux[SECTOR_SIZE];
-		readSector(sector+i, bufferAux);
-		memcpy(buffer+i*SECTOR_SIZE, bufferAux, SECTOR_SIZE);
+		//unsigned char bufferAux[SECTOR_SIZE];
+		//readSector(sector+i, bufferAux);
+		//memcpy(buffer+i*SECTOR_SIZE, bufferAux, SECTOR_SIZE);
+		readSector(sector+i, buffer+i*SECTOR_SIZE);
 	}
 }
 
@@ -363,41 +365,28 @@ int mkdir2 (char *pathname) {
 	memcpy(clusterBuffer+handleList[handleFather].currentPointer, &record, sizeof(record));
 	writeCluster(clusterIndex, clusterBuffer);
 
+	closedir2(handleFather);
+
 	//and the "." and ".." dir
 	Record itSelf = record;
 	strcpy(itSelf.name, ".");
 
-	char grandFatherPath[MAX_FILE_NAME_SIZE];
+	handleFather = opendir2(fatherPath);
+	Record fatherRecord = readCurrentRecordOfHandle(handleFather);//we know that the "." dir is the first, possible problem?
+	//add the size of the new record
+	fatherRecord.bytesFileSize += sizeof(record);
+	handleList[handleFather].currentPointer = 0;
+	//writeCurrentRecordOfHandle(handleFather, fatherRecord);//AINDA FALTA MUDAR O TAMANHO DOS DIRETÒRIOS ALTERADOS
 
-	sepName(fatherPath, grandFatherPath, name);
-	int grandFatherHandle = opendir2(fatherPath);//grandFatherPath);
-	printf("handle: %d pash: %s\n", grandFatherHandle, grandFatherPath);
 
-	DIRENT2 aux2;
-	while(strcmp(aux2.name, ".")!=0) {
-
-		if(readdir2(grandFatherHandle, &aux2)!=0) {
-
-			break;
-		}
-	}
-	handleList[grandFatherHandle].currentPointer -= sizeof(Record);
-
-	Record grandFatherRecord = readCurrentRecordOfHandle(grandFatherHandle);
-	printf("%s\n", grandFatherRecord.name);
-	strcpy(grandFatherRecord.name, "..");
-
-	printf("%s\n", grandFatherRecord.name);
+	strcpy(fatherRecord.name, "..");
 
 	unsigned char newCluster[CLUSTER_SIZE];
-	//int newFatEntryIndex = handleList[grandFatherHandle].firstFileFatEntry;
-	//int newClusterIndex = fatToCluster(newFatEntryIndex);
 	int newClusterIndex = record.firstCluster;
 	memcpy(newCluster+	0*sizeof(record), &itSelf, sizeof(record));
-	memcpy(newCluster+	1*sizeof(record), &grandFatherRecord, sizeof(record));
+	memcpy(newCluster+	1*sizeof(record), &fatherRecord, sizeof(record));
 	writeCluster(newClusterIndex, newCluster);
 	
-	closedir2(grandFatherHandle);
 	closedir2(handleFather);
 
 	return 0;
@@ -495,6 +484,23 @@ Record readCurrentRecordOfHandle(DIR2 handle) {
 
 	return rec;
 }
+
+//I should have done it earlier
+void writeCurrentRecordOfHandle(DIR2 handle, Record record) {
+
+	int fatIndex = handleList[handle].firstFileFatEntry;
+
+	int cluster = fatToCluster(fatIndex);
+
+	unsigned char clusterBuffer[CLUSTER_SIZE];
+	readCluster(cluster, clusterBuffer);
+
+	memcpy(clusterBuffer+handleList[handle].currentPointer, &record, sizeof(record));
+
+	writeCluster(cluster, clusterBuffer);
+}
+
+
 
 int readdir2 (DIR2 handle, DIRENT2 *dentry) {
 	init();
