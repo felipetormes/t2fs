@@ -186,9 +186,6 @@ void readCluster(int clusterIndex, unsigned char *buffer) {
 
 	for(i=0; i<sectorPerCluster; i++) {
 
-		//unsigned char bufferAux[SECTOR_SIZE];
-		//readSector(sector+i, bufferAux);
-		//memcpy(buffer+i*SECTOR_SIZE, bufferAux, SECTOR_SIZE);
 		readSector(sector+i, buffer+i*SECTOR_SIZE);
 	}
 }
@@ -442,10 +439,85 @@ int mkdir2 (char *pathname) {
 	int fatEntryIndex = handleList[handleFather].firstFileFatEntry;
 	int clusterIndex = fatToCluster(fatEntryIndex);
 	readCluster(clusterIndex, clusterBuffer);
+
+	//size of the "." dir to += sizeof(record)
+	Record dotDir;
+	memcpy(&dotDir, clusterBuffer, sizeof(record));//because the dotDir is always the first
+	dotDir.bytesFileSize+=sizeof(record);
+	memcpy(clusterBuffer, &dotDir, sizeof(record));
+
 	memcpy(clusterBuffer+handleList[handleFather].currentPointer, &record, sizeof(record));
 	writeCluster(clusterIndex, clusterBuffer);
-
+	
 	closedir2(handleFather);
+
+
+	//size of the father entry to this dir
+	char grandFatherPath[MAX_FILE_NAME_SIZE];
+	char grandFatherName[MAX_FILE_NAME_SIZE];
+	sepName(fatherPath, grandFatherPath, grandFatherName);
+	//if the file is on root
+	if(strcmp(fatherPath, grandFatherPath)!=0) {
+
+		handleFather = opendir2(grandFatherPath);
+		//till we find the one
+		while(strcmp(aux.name, grandFatherName)) {
+
+			if(readdir2(handleFather, &aux)!=0) {
+				
+				break;
+			}
+		}
+		handleList[handleFather].currentPointer -= sizeof(Record);
+
+		//editing the grand father cluster
+		fatEntryIndex = handleList[handleFather].firstFileFatEntry;
+		clusterIndex = fatToCluster(fatEntryIndex);
+		Record grandFatherRecord = readCurrentRecordOfHandle(handleFather);
+		grandFatherRecord.bytesFileSize+= sizeof(record);
+		readCluster(clusterIndex, clusterBuffer);
+		writeCurrentRecordOfHandle(handleFather, grandFatherRecord);
+
+		closedir2(handleFather);
+	
+	} else {
+
+		//edit the ".."" dir
+		//opening father
+		int handleFather = opendir2(fatherPath);
+		handleList[handleFather].currentPointer = sizeof(record);//the second offset is where the ".." is located
+		Record record = readCurrentRecordOfHandle(handleFather);
+		record.bytesFileSize += sizeof(record);
+		writeCurrentRecordOfHandle(handleFather, record);
+		closedir2(handleFather);
+	}
+
+	//the ".." dir of all of the children must be updated too
+	//opening father
+	handleFather = opendir2(fatherPath);
+	while(readdir2(handleFather, &aux)==0) {
+		//updated the ".." of each one
+		if(aux.fileType == TYPEVAL_DIRETORIO) {
+		
+			if(strcmp(aux.name, ".")!=0 && strcmp(aux.name, "..")!=0) {
+
+				char childPath[MAX_FILE_NAME_SIZE];
+				strcpy(childPath, fatherPath);
+				strcat(childPath, "/");
+				strcat(childPath, aux.name);
+				int childrenHandle = opendir2(childPath);
+				handleList[childrenHandle].currentPointer = sizeof(Record);
+				Record childRecord = readCurrentRecordOfHandle(childrenHandle);
+				childRecord.bytesFileSize += sizeof(Record);
+				writeCurrentRecordOfHandle(childrenHandle, childRecord);
+
+				closedir2(childrenHandle);
+			}
+		}
+	}
+	closedir2(handleFather);
+
+
 
 	//and the "." and ".." dir
 	Record itSelf = record;
@@ -453,23 +525,26 @@ int mkdir2 (char *pathname) {
 
 	handleFather = opendir2(fatherPath);
 	Record fatherRecord = readCurrentRecordOfHandle(handleFather);//we know that the "." dir is the first, possible problem?
-	//add the size of the new record
-	fatherRecord.bytesFileSize += sizeof(record);
-	handleList[handleFather].currentPointer = 0;
-	//writeCurrentRecordOfHandle(handleFather, fatherRecord);//AINDA FALTA MUDAR O TAMANHO DOS DIRETÒRIOS ALTERADOS
-
-
 	strcpy(fatherRecord.name, "..");
+	closedir2(handleFather);
 
 	unsigned char newCluster[CLUSTER_SIZE];
 	int newClusterIndex = record.firstCluster;
 	memcpy(newCluster+	0*sizeof(record), &itSelf, sizeof(record));
 	memcpy(newCluster+	1*sizeof(record), &fatherRecord, sizeof(record));
 	writeCluster(newClusterIndex, newCluster);
-	
-	closedir2(handleFather);
 
 	return 0;
+}
+
+void deleteFileOnFat(int fatIndex) {
+
+	int next = readFatEntry(fatIndex);
+	changeFatEntryToType(fatIndex, CLUSTER_FREE);
+	if(next != CLUSTER_EOF) {
+
+		deleteFileOnFat(next);
+	}
 }
 
 int rmdir2 (char *pathname) {
@@ -500,7 +575,10 @@ int rmdir2 (char *pathname) {
 	handleList[handleFather].currentPointer -= sizeof(Record);//to get back to the previous empty space
 
 	Record fatherRecord = readCurrentRecordOfHandle(handleFather);
-	//fatherRecord.firstCluster use this to delete fat entriess!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+	
+	//Delete fat entries
+	int fatIndex = clusterToFat(fatherRecord.firstCluster);
+	deleteFileOnFat(fatIndex);
 
 	//guarda currentPointer
 	int middlePointer = handleList[handleFather].currentPointer;
