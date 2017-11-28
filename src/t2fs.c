@@ -25,6 +25,7 @@ typedef struct handle_struct {
 
 	int firstFileFatEntry;
 	int currentPointer;
+    Record rec;
 } Handle;
 
 Handle handleList[10];
@@ -50,7 +51,7 @@ void sepName(char* pathname, char* filepath, char* filename)
 
 		strcpy(filepath, "/");
     	strcpy(filename, "/");
-	
+
 	} else {
 
 		char pathCopy[10000];
@@ -370,6 +371,8 @@ FILE2 open2 (char *filename) {
     int handle = searchFreeHandleListIndex();
     handleList[handle].firstFileFatEntry = clusterToFat(record.firstCluster);
     handleList[handle].currentPointer = 0;
+    handleList[handle].rec = record;
+
 	return handle;
 }
 
@@ -383,8 +386,96 @@ int close2 (FILE2 handle) {
 }
 
 int read2 (FILE2 handle, char *buffer, int size) {
-	init();
-	return 0;
+    init();
+
+    // To do: verificar se handle é valido e de arquivo.
+    Handle hd = handleList[handle];
+
+    int availabeToRead = (int)hd.rec.bytesFileSize - hd.currentPointer;
+
+    int totalToRead = 0;
+    if(size <= availabeToRead)
+    {
+        totalToRead = size;
+    }
+    else
+    {
+        totalToRead = availabeToRead;
+    }
+
+    int toRead = totalToRead * 2;
+    int currClusterIndex = currentPointerToClusterIndex(hd);
+    int currPointerInCurrCluster = hd.currentPointer % CLUSTER_SIZE;
+
+    int currFat = hd.firstFileFatEntry;
+
+    printf("\ncurrentPointer: %d\n", hd.currentPointer);
+    printf("availabeToRead: %d\n", availabeToRead);
+    printf("totalToRead: %d\n", totalToRead);
+
+    // Navega pro cluster atual.
+    int nClusters = hd.currentPointer / CLUSTER_SIZE;
+    for(int i = 0; i != nClusters; ++i)
+    {
+        printf("\nnext cluster...\n");
+        currFat = readFatEntry(currFat);
+        currClusterIndex = fatToCluster(currFat);
+    }
+
+    printf("currClusterIndex: %d\n", currClusterIndex);
+    printf("currPointerInCurrCluster: %d\n", currPointerInCurrCluster);
+
+    char* mainBuffer = malloc(totalToRead);
+    mainBuffer[0] = '\0';
+
+    do
+    {
+        printf("\nreading...\n");
+        int availabeInCluster = CLUSTER_SIZE - currPointerInCurrCluster;
+
+        printf("availabeInCluster: %d\n", availabeInCluster);
+
+        if(toRead > availabeInCluster)
+        {
+            printf("\ntoRead > availabeInCluster\n");
+
+            // Lê clsuter atual, prepara próximo.
+            char buffer2[CLUSTER_SIZE];
+            buffer2[0] = '\0';
+            readCluster(currClusterIndex, (unsigned char*)buffer2);
+            strncat(mainBuffer, &buffer2[currPointerInCurrCluster], availabeInCluster);
+
+            // Próximo cluster.
+            currFat = readFatEntry(currFat);
+            currClusterIndex = fatToCluster(currFat);
+            currPointerInCurrCluster = 0;
+
+            printf("currFat: %d\n", currClusterIndex);
+            printf("currClusterIndex: %d\n", currClusterIndex);
+            printf("currPointerInCurrCluster: %d\n", currPointerInCurrCluster);
+
+            toRead -= availabeInCluster;
+        }
+        else
+        {
+            printf("\nREAD!\n");
+
+            // Lê cluster.
+            char buffer2[CLUSTER_SIZE];
+            buffer2[0] = '\0';
+            readCluster(currClusterIndex, (unsigned char*)buffer2);
+            strncat(mainBuffer, &buffer2[currPointerInCurrCluster], toRead);
+
+            toRead = 0;
+        }
+    }while(toRead > 0);
+
+    strncpy(buffer, mainBuffer, totalToRead);
+    free(mainBuffer);
+
+    handleList[handle].currentPointer += totalToRead;
+
+	return totalToRead;
 }
 
 int write2 (FILE2 handle, char *buffer, int size) {
@@ -405,22 +496,22 @@ int seek2 (FILE2 handle, unsigned int offset) {
 int getFreeFatEntry() {
 
 	int freeFat = searchFatEntryOfType(CLUSTER_FREE);
-	
+
 	changeFatEntryToType(freeFat, CLUSTER_EOF);
-	
+
 	return fatToCluster(freeFat);
 }
 
 Record configureNewRecord(char *name) {
 
 	Record record;
-	
+
 	record.TypeVal = TYPEVAL_DIRETORIO;
-	
-	strcpy(record.name, name); 
+
+	strcpy(record.name, name);
 
 	record.firstCluster = getFreeFatEntry();
-	
+
 	record.bytesFileSize = 2*sizeof(record);
 
 	return record;
@@ -456,7 +547,7 @@ void setCurrentPointerToFile(int grandFatherHandle, char *grandFatherName) {
 	while(strcmp(aux.name, grandFatherName)) {
 
 		if(readdir2(grandFatherHandle, &aux)!=0) {
-			
+
 			break;
 		}
 	}
@@ -484,13 +575,13 @@ void incrementSizeOfRecordFileFolderAt(char *fatherPath, char *fileName, int inc
 		sepName(fatherPath, grandFatherPath, fatherName);
 
 		int grandFatherHandle = opendir2(grandFatherPath);
-		
+
 		setCurrentPointerToFile(grandFatherHandle, fatherName);
-		
+
 		Record fatherRecord = readCurrentRecordOfHandle(grandFatherHandle);
-		
+
 		fatherRecord.bytesFileSize += increment;
-		
+
 		writeCurrentRecordOfHandle(grandFatherHandle, fatherRecord);
 
 		closedir2(grandFatherHandle);
@@ -519,18 +610,18 @@ void incrementDotDotEntryOf(char *fatherPath, char *name, int increment) {
 	//the ".." dir of all of the children must be updated too
 	int handleFather = opendir2(auxFatherPath);
 	while(readdir2(handleFather, &aux)==0) {
-		
+
 		if(aux.fileType == TYPEVAL_DIRETORIO) {
 
 			if(strcmp(aux.name, name)!=0) {
-				
+
 				if(strcmp(aux.name, ".")!=0 && strcmp(aux.name, "..")!=0) {
-					
+
 					char childPath[MAX_FILE_NAME_SIZE];
 					strcpy(childPath, fatherPath);
 					strcat(childPath, "/");
 					strcat(childPath, aux.name);
-					
+
 					int childrenHandle = opendir2(childPath);
 					handleList[childrenHandle].currentPointer = sizeof(Record);
 					Record childRecord = readCurrentRecordOfHandle(childrenHandle);
@@ -549,13 +640,13 @@ void changeSizeOfFileOrFolder(char *pathname, int increment) {
 
 	char fatherPath[MAX_FILE_NAME_SIZE];
 	char name[MAX_FILE_NAME_SIZE];
-	
+
 	sepName(pathname, fatherPath, name);
 	incrementSizeOfRecordFileFolderAt(fatherPath, name, increment);
-	
+
 	sepName(pathname, fatherPath, name);
 	incrementDotEntryOf(fatherPath, increment);
-	
+
 	sepName(pathname, fatherPath, name);
 	incrementDotDotEntryOf(fatherPath, name, increment);
 }
@@ -567,7 +658,7 @@ void makeDotAndDotDotEntry(Record record, char *pathname) {
 
 	char fatherPath[MAX_FILE_NAME_SIZE];
 	char name[MAX_FILE_NAME_SIZE];
-	
+
 	sepName(pathname, fatherPath, name);
 
 	//root
@@ -586,9 +677,9 @@ void makeDotAndDotDotEntry(Record record, char *pathname) {
 		sepName(fatherPath, grandFatherPath, fatherName);
 
 		int grandFatherHandle = opendir2(grandFatherPath);
-		
+
 		setCurrentPointerToFile(grandFatherHandle, fatherName);
-		
+
 		dotDot = readCurrentRecordOfHandle(grandFatherHandle);
 		closedir2(grandFatherHandle);
 	}
@@ -613,11 +704,11 @@ int mkdir2 (char *pathname) {
 	sepName(pathname, fatherPath, name);
 
 	Record newRecord = configureNewRecord(name);
-	
+
 	writeRecordAtEndOfFolder(pathname, newRecord);
-	
+
 	changeSizeOfFileOrFolder(pathname, sizeof(Record));
-	
+
 	makeDotAndDotDotEntry(newRecord, pathname);
 
 	return 0;
@@ -634,13 +725,13 @@ void deleteFileOnFat(int fatIndex) {
 	int next = readFatEntry(fatIndex);
 
 	changeFatEntryToType(fatIndex, CLUSTER_FREE);
-	
+
 	int clusterIndex = fatToCluster(fatIndex);
 
 	unsigned char buffer[CLUSTER_SIZE];
 
 	readCluster(clusterIndex, buffer);
-	
+
 	deleteCluster(fatToCluster(fatIndex));
 
 	if(next != CLUSTER_EOF) {
@@ -665,7 +756,7 @@ int rmdir2 (char *pathname) {
 	while(strcmp(aux.name, name)) {
 
 		if(readdir2(handleFather, &aux)!=0) {
-			
+
 			break;
 		}
 	}
@@ -677,7 +768,7 @@ int rmdir2 (char *pathname) {
 	handleList[handleFather].currentPointer -= sizeof(Record);//to get back to the previous empty space
 
 	Record fatherRecord = readCurrentRecordOfHandle(handleFather);
-	
+
 	if(fatherRecord.TypeVal != TYPEVAL_DIRETORIO) {
 
 		printf("ERROR, You can't delete %s, it's not a dir.\n", name);
@@ -699,12 +790,12 @@ int rmdir2 (char *pathname) {
 
 	Record record;
 	record.TypeVal = TYPEVAL_INVALIDO;
-	
+
 	if(handleList[handleFather].currentPointer == middlePointer) {
 
 		//seto ele pra free/invalido
 		writeCurrentRecordOfHandle(handleFather, record);
-	
+
 	} else {
 
 		//seto ele pra free/invalido
