@@ -385,7 +385,7 @@ int close2 (FILE2 handle) {
 	return 0;
 }
 
-int read2 (FILE2 handle, char *buffer, int size) {
+int read2_1 (FILE2 handle, char *buffer, int size) {
     init();
 
     // To do: verificar se handle é valido e de arquivo.
@@ -403,7 +403,7 @@ int read2 (FILE2 handle, char *buffer, int size) {
         totalToRead = availabeToRead;
     }
 
-    int toRead = totalToRead * 2;
+    int toRead = totalToRead;
     int currClusterIndex = currentPointerToClusterIndex(hd);
     int currPointerInCurrCluster = hd.currentPointer % CLUSTER_SIZE;
 
@@ -419,6 +419,7 @@ int read2 (FILE2 handle, char *buffer, int size) {
     {
         printf("\nnext cluster...\n");
         currFat = readFatEntry(currFat);
+		if(currFat == CLUSTER_EOF)
         currClusterIndex = fatToCluster(currFat);
     }
 
@@ -476,6 +477,62 @@ int read2 (FILE2 handle, char *buffer, int size) {
     handleList[handle].currentPointer += totalToRead;
 
 	return totalToRead;
+}
+
+int readCurrentByte(int handle, char *byte) {
+
+	int fatEntry = handleList[handle].firstFileFatEntry;
+
+	int currentPointerCluster = handleList[handle].currentPointer / CLUSTER_SIZE;
+
+	while(currentPointerCluster > 0) {
+
+		fatEntry = readFatEntry(fatEntry);
+		currentPointerCluster--;
+	}
+
+	int currentPointerOffsetInsideCluster = handleList[handle].currentPointer % CLUSTER_SIZE;
+
+	unsigned char clusterBuffer[CLUSTER_SIZE];
+
+	int clusterIndex = fatToCluster(fatEntry);
+
+	readCluster(clusterIndex, clusterBuffer);
+
+	memcpy(byte, clusterBuffer + currentPointerOffsetInsideCluster, 1);
+
+	handleList[handle].currentPointer++;
+
+	int totalSize = handleList[handle].rec.bytesFileSize;
+	int currPointer = handleList[handle].currentPointer;
+
+	if(totalSize < currPointer) {
+
+		return ERROR;
+	}
+
+	return 0;
+}
+
+int read2 (FILE2 handle, char *buffer, int size) {
+
+	int bufferOffset = 0;
+	while(size>0) {
+
+		char currentByte;
+		if(readCurrentByte(handle, &currentByte)==ERROR) {
+
+			printf("Chegou no fim do arquivo.\n");
+			break;
+		}
+		memcpy(buffer+bufferOffset, &currentByte, 1);
+		
+		printf("%d\n", size);
+		size--;
+		bufferOffset++;
+	}
+	
+	return bufferOffset;
 }
 
 int write2 (FILE2 handle, char *buffer, int size) {
