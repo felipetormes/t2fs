@@ -403,11 +403,12 @@ int read2 (FILE2 handle, char *buffer, int size) {
         totalToRead = availabeToRead;
     }
 
-    int toRead = totalToRead * 2;
+    int toRead = totalToRead;
     int currClusterIndex = currentPointerToClusterIndex(hd);
     int currPointerInCurrCluster = hd.currentPointer % CLUSTER_SIZE;
 
     int currFat = hd.firstFileFatEntry;
+    printf("\ncurrFat: %d\n", currFat);
 
     printf("\ncurrentPointer: %d\n", hd.currentPointer);
     printf("availabeToRead: %d\n", availabeToRead);
@@ -431,6 +432,7 @@ int read2 (FILE2 handle, char *buffer, int size) {
     do
     {
         printf("\nreading...\n");
+        printf("\ncurrFat: %d\n", currFat);
         int availabeInCluster = CLUSTER_SIZE - currPointerInCurrCluster;
 
         printf("availabeInCluster: %d\n", availabeInCluster);
@@ -450,7 +452,7 @@ int read2 (FILE2 handle, char *buffer, int size) {
             currClusterIndex = fatToCluster(currFat);
             currPointerInCurrCluster = 0;
 
-            printf("currFat: %d\n", currClusterIndex);
+            printf("currFat: %d\n", currFat);
             printf("currClusterIndex: %d\n", currClusterIndex);
             printf("currPointerInCurrCluster: %d\n", currPointerInCurrCluster);
 
@@ -490,6 +492,21 @@ int truncate2 (FILE2 handle) {
 
 int seek2 (FILE2 handle, unsigned int offset) {
 	init();
+
+    if((int)offset == -1)
+    {
+        handleList[handle].currentPointer = handleList[handle].rec.bytesFileSize;
+    }
+    else if(offset < handleList[handle].rec.bytesFileSize)
+    {
+        handleList[handle].currentPointer = offset;
+    }
+    else
+    {
+        printf("\nOffset of %d bigger than file size of %d bytes", offset, handleList[handle].rec.bytesFileSize);
+        return -1;
+    }
+
 	return 0;
 }
 
