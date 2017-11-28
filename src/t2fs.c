@@ -56,7 +56,7 @@ void sepName(char* pathname, char* filepath, char* filename)
 		char pathCopy[10000];
 		strcpy(pathCopy, pathname);
 		char* fName = strtok(pathCopy, "/");
-		char path[] = "/\0";
+		char path[] = "/\0";//this should be removed to mound the absolute pass when the user inputs the relative
 
 		char* lastToken = fName;
 		do
@@ -402,101 +402,121 @@ int seek2 (FILE2 handle, unsigned int offset) {
 	return 0;
 }
 
+int getFreeFatEntry() {
 
+	int freeFat = searchFatEntryOfType(CLUSTER_FREE);
+	
+	changeFatEntryToType(freeFat, CLUSTER_EOF);
+	
+	return fatToCluster(freeFat);
+}
 
-int mkdir2 (char *pathname) {
-	init();
+Record configureNewRecord(char *name) {
 
-	//separating the path
-	char fatherPath[MAX_FILE_NAME_SIZE];
-	char name[MAX_FILE_NAME_SIZE];
-	sepName(pathname, fatherPath, name);
+	Record record;
+	
+	record.TypeVal = TYPEVAL_DIRETORIO;
+	
+	strcpy(record.name, name); 
 
-	//opening father
-	int handleFather = opendir2(fatherPath);
+	record.firstCluster = getFreeFatEntry();
+	
+	record.bytesFileSize = 2*sizeof(record);
+
+	return record;
+}
+
+void setHandleToFolderFirstEmptySpace(int handle) {
 
 	DIRENT2 aux;
-	//till it find an empty space
-	while(readdir2(handleFather, &aux)==0);
-	handleList[handleFather].currentPointer -= sizeof(Record);//to get back to the previous empty space
 
-	//configure record of new dir
-	Record record;
-	record.TypeVal = TYPEVAL_DIRETORIO;
-	strcpy(record.name, name); 
-    
-	
-	//and the new fat entries
-	int freeFat = searchFatEntryOfType(CLUSTER_FREE);
-	changeFatEntryToType(freeFat, CLUSTER_EOF);
-	record.firstCluster = fatToCluster(freeFat);
-    
-	//size of the father and itself
-	record.bytesFileSize = 2*sizeof(record);
-	
-	//editing the father cluster
-	unsigned char clusterBuffer[CLUSTER_SIZE];
-	int fatEntryIndex = handleList[handleFather].firstFileFatEntry;
-	int clusterIndex = fatToCluster(fatEntryIndex);
-	readCluster(clusterIndex, clusterBuffer);
+	while(readdir2(handle, &aux)==0);
 
-	//size of the "." dir to += sizeof(record)
-	Record dotDir;
-	memcpy(&dotDir, clusterBuffer, sizeof(record));//because the dotDir is always the first
-	dotDir.bytesFileSize+=sizeof(record);
-	memcpy(clusterBuffer, &dotDir, sizeof(record));
+	handleList[handle].currentPointer -= sizeof(Record);//to get back to the previous empty space
+}
 
-	memcpy(clusterBuffer+handleList[handleFather].currentPointer, &record, sizeof(record));
-	writeCluster(clusterIndex, clusterBuffer);
-	
-	closedir2(handleFather);
+void writeRecordAtEndOfFolder(char *path, Record newRecord) {
 
+	char fatherPath[MAX_FILE_NAME_SIZE];
+	char name[MAX_FILE_NAME_SIZE];
+	sepName(path, fatherPath, name);
 
-	//size of the father entry to this dir
-	char grandFatherPath[MAX_FILE_NAME_SIZE];
-	char grandFatherName[MAX_FILE_NAME_SIZE];
-	sepName(fatherPath, grandFatherPath, grandFatherName);
-	//if the file is on root
-	if(strcmp(fatherPath, grandFatherPath)!=0) {
+	int handle = opendir2(fatherPath);
 
-		handleFather = opendir2(grandFatherPath);
-		//till we find the one
-		while(strcmp(aux.name, grandFatherName)) {
+	setHandleToFolderFirstEmptySpace(handle);
 
-			if(readdir2(handleFather, &aux)!=0) {
-				
-				break;
-			}
+	writeCurrentRecordOfHandle(handle, newRecord);
+
+	closedir2(handle);
+}
+
+void setCurrentPointerToFile(int grandFatherHandle, char *grandFatherName) {
+
+	DIRENT2 aux;
+	while(strcmp(aux.name, grandFatherName)) {
+
+		if(readdir2(grandFatherHandle, &aux)!=0) {
+			
+			break;
 		}
-		handleList[handleFather].currentPointer -= sizeof(Record);
-
-		//editing the grand father cluster
-		fatEntryIndex = handleList[handleFather].firstFileFatEntry;
-		clusterIndex = fatToCluster(fatEntryIndex);
-		Record grandFatherRecord = readCurrentRecordOfHandle(handleFather);
-		grandFatherRecord.bytesFileSize+= sizeof(record);
-		readCluster(clusterIndex, clusterBuffer);
-		writeCurrentRecordOfHandle(handleFather, grandFatherRecord);
-
-		closedir2(handleFather);
-	
-	} else {
-
-		//edit the ".."" dir
-		//opening father
-		int handleFather = opendir2(fatherPath);
-		handleList[handleFather].currentPointer = sizeof(record);//the second offset is where the ".." is located
-		Record record = readCurrentRecordOfHandle(handleFather);
-		record.bytesFileSize += sizeof(record);
-		writeCurrentRecordOfHandle(handleFather, record);
-		closedir2(handleFather);
 	}
 
+	handleList[grandFatherHandle].currentPointer -= sizeof(Record);
+}
+
+void incrementSizeOfRecordFileFolderAt(char *fatherPath, char *fileName, int increment) {
+
+	//root
+	if(strcmp(fatherPath, "/")==0) {
+
+		//edit the ".."" dir
+		int handle = opendir2(fatherPath);
+		handleList[handle].currentPointer = sizeof(Record);//the second offset is where the ".." is located
+		Record record = readCurrentRecordOfHandle(handle);
+		record.bytesFileSize += increment;
+		writeCurrentRecordOfHandle(handle, record);
+		closedir2(handle);
+
+	} else {
+
+		char grandFatherPath[MAX_FILE_NAME_SIZE];
+		char fatherName[MAX_FILE_NAME_SIZE];
+		sepName(fatherPath, grandFatherPath, fatherName);
+
+		int grandFatherHandle = opendir2(grandFatherPath);
+		
+		setCurrentPointerToFile(grandFatherHandle, fatherName);
+		
+		Record fatherRecord = readCurrentRecordOfHandle(grandFatherHandle);
+		
+		fatherRecord.bytesFileSize += increment;
+		
+		writeCurrentRecordOfHandle(grandFatherHandle, fatherRecord);
+
+		closedir2(grandFatherHandle);
+	}
+}
+
+void incrementDotEntryOf(char *fatherPath, int increment) {
+
+	int handle = opendir2(fatherPath);
+
+	Record record = readCurrentRecordOfHandle(handle);
+
+	record.bytesFileSize += increment;
+
+	writeCurrentRecordOfHandle(handle, record);
+
+	closedir2(handle);
+}
+
+void incrementDotDotEntryOf(char *fatherPath, char *name, int increment) {
+
+	DIRENT2 aux;
 	//the ".." dir of all of the children must be updated too
-	//opening father
-	handleFather = opendir2(fatherPath);
+	int handleFather = opendir2(fatherPath);
 	while(readdir2(handleFather, &aux)==0) {
-		//updated the ".." of each one
+		
 		if(aux.fileType == TYPEVAL_DIRETORIO) {
 		
 			if(strcmp(aux.name, ".")!=0 && strcmp(aux.name, "..")!=0) {
@@ -516,23 +536,82 @@ int mkdir2 (char *pathname) {
 		}
 	}
 	closedir2(handleFather);
+}
 
+void changeSizeOfFileOrFolder(char *pathname, int increment) {
 
+	char fatherPath[MAX_FILE_NAME_SIZE];
+	char name[MAX_FILE_NAME_SIZE];
+	
+	sepName(pathname, fatherPath, name);
+	incrementSizeOfRecordFileFolderAt(fatherPath, name, increment);
+	
+	sepName(pathname, fatherPath, name);
+	incrementDotEntryOf(fatherPath, increment);
+	
+	sepName(pathname, fatherPath, name);
+	incrementDotDotEntryOf(fatherPath, name, increment);
+}
 
-	//and the "." and ".." dir
-	Record itSelf = record;
-	strcpy(itSelf.name, ".");
+void makeDotAndDotDotEntry(Record record, char *pathname) {
 
-	handleFather = opendir2(fatherPath);
-	Record fatherRecord = readCurrentRecordOfHandle(handleFather);//we know that the "." dir is the first, possible problem?
-	strcpy(fatherRecord.name, "..");
-	closedir2(handleFather);
+	Record dot = record;
+	Record dotDot;
 
-	unsigned char newCluster[CLUSTER_SIZE];
-	int newClusterIndex = record.firstCluster;
-	memcpy(newCluster+	0*sizeof(record), &itSelf, sizeof(record));
-	memcpy(newCluster+	1*sizeof(record), &fatherRecord, sizeof(record));
-	writeCluster(newClusterIndex, newCluster);
+	char fatherPath[MAX_FILE_NAME_SIZE];
+	char name[MAX_FILE_NAME_SIZE];
+	
+	sepName(pathname, fatherPath, name);
+
+	//root
+	if(strcmp(fatherPath, "/")==0) {
+
+		//edit the ".."" dir
+		int handle = opendir2(fatherPath);
+		handleList[handle].currentPointer = sizeof(Record);//the second offset is where the ".." is located
+		dotDot = readCurrentRecordOfHandle(handle);
+		closedir2(handle);
+
+	} else {
+
+		char grandFatherPath[MAX_FILE_NAME_SIZE];
+		char fatherName[MAX_FILE_NAME_SIZE];
+		sepName(fatherPath, grandFatherPath, fatherName);
+
+		int grandFatherHandle = opendir2(grandFatherPath);
+		
+		setCurrentPointerToFile(grandFatherHandle, fatherName);
+		
+		dotDot = readCurrentRecordOfHandle(grandFatherHandle);
+		closedir2(grandFatherHandle);
+	}
+
+	strcpy(dot.name, ".");
+	strcpy(dotDot.name, "..");
+
+	int lastHandle = opendir2(pathname);
+
+	writeCurrentRecordOfHandle(lastHandle, dot);
+	handleList[lastHandle].currentPointer = sizeof(Record);
+	writeCurrentRecordOfHandle(lastHandle, dotDot);
+
+	closedir2(lastHandle);
+}
+
+int mkdir2 (char *pathname) {
+	init();
+
+	char fatherPath[MAX_FILE_NAME_SIZE];
+	char name[MAX_FILE_NAME_SIZE];
+	sepName(pathname, fatherPath, name);
+
+	Record newRecord = configureNewRecord(name);
+	
+	writeRecordAtEndOfFolder(pathname, newRecord);
+	
+	changeSizeOfFileOrFolder(pathname, sizeof(Record));
+	
+	makeDotAndDotDotEntry(newRecord, pathname);
 
 	return 0;
 }
@@ -631,6 +710,8 @@ int searchFreeHandleListIndex() {
 		}
 	}
 
+	printf("ALGUÉM ESTÁ ESQUECENDO DE FECHAR ARQUIVOS....\n");
+
 	return ERROR;
 }
 
@@ -679,7 +760,7 @@ DIR2 opendir2 (char *pathname) {
 
 		token = strtok(NULL, "/");
 	}
-	
+
 	return handle;
 }
 
