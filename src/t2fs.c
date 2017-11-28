@@ -512,26 +512,33 @@ void incrementDotEntryOf(char *fatherPath, int increment) {
 
 void incrementDotDotEntryOf(char *fatherPath, char *name, int increment) {
 
+	char auxFatherPath[1000];
+	strcpy(auxFatherPath, fatherPath);
+
 	DIRENT2 aux;
 	//the ".." dir of all of the children must be updated too
-	int handleFather = opendir2(fatherPath);
+	int handleFather = opendir2(auxFatherPath);
 	while(readdir2(handleFather, &aux)==0) {
 		
 		if(aux.fileType == TYPEVAL_DIRETORIO) {
-		
-			if(strcmp(aux.name, ".")!=0 && strcmp(aux.name, "..")!=0) {
 
-				char childPath[MAX_FILE_NAME_SIZE];
-				strcpy(childPath, fatherPath);
-				strcat(childPath, "/");
-				strcat(childPath, aux.name);
-				int childrenHandle = opendir2(childPath);
-				handleList[childrenHandle].currentPointer = sizeof(Record);
-				Record childRecord = readCurrentRecordOfHandle(childrenHandle);
-				childRecord.bytesFileSize += sizeof(Record);
-				writeCurrentRecordOfHandle(childrenHandle, childRecord);
+			if(strcmp(aux.name, name)!=0) {
+				
+				if(strcmp(aux.name, ".")!=0 && strcmp(aux.name, "..")!=0) {
+					
+					char childPath[MAX_FILE_NAME_SIZE];
+					strcpy(childPath, fatherPath);
+					strcat(childPath, "/");
+					strcat(childPath, aux.name);
+					
+					int childrenHandle = opendir2(childPath);
+					handleList[childrenHandle].currentPointer = sizeof(Record);
+					Record childRecord = readCurrentRecordOfHandle(childrenHandle);
+					childRecord.bytesFileSize += increment;
+					writeCurrentRecordOfHandle(childrenHandle, childRecord);
 
-				closedir2(childrenHandle);
+					closedir2(childrenHandle);
+				}
 			}
 		}
 	}
@@ -616,10 +623,26 @@ int mkdir2 (char *pathname) {
 	return 0;
 }
 
+void deleteCluster(int clusterIndex) {
+
+	unsigned char *buffer = calloc(1, CLUSTER_SIZE);
+	writeCluster(clusterIndex, buffer);
+}
+
 void deleteFileOnFat(int fatIndex) {
 
 	int next = readFatEntry(fatIndex);
+
 	changeFatEntryToType(fatIndex, CLUSTER_FREE);
+	
+	int clusterIndex = fatToCluster(fatIndex);
+
+	unsigned char buffer[CLUSTER_SIZE];
+
+	readCluster(clusterIndex, buffer);
+	
+	deleteCluster(fatToCluster(fatIndex));
+
 	if(next != CLUSTER_EOF) {
 
 		deleteFileOnFat(next);
@@ -655,6 +678,12 @@ int rmdir2 (char *pathname) {
 
 	Record fatherRecord = readCurrentRecordOfHandle(handleFather);
 	
+	if(fatherRecord.TypeVal != TYPEVAL_DIRETORIO) {
+
+		printf("ERROR, You can't delete %s, it's not a dir.\n", name);
+		return ERROR;
+	}
+
 	//Delete fat entries
 	int fatIndex = clusterToFat(fatherRecord.firstCluster);
 	deleteFileOnFat(fatIndex);
@@ -685,6 +714,12 @@ int rmdir2 (char *pathname) {
 		handleList[handleFather].currentPointer = middlePointer;
 		writeCurrentRecordOfHandle(handleFather, lastRecord);
 	}
+
+	sepName(pathname, fatherPath, name);
+
+	changeSizeOfFileOrFolder(pathname, -sizeof(Record));
+
+	closedir2(handleFather);
 
 	return 0;
 }
