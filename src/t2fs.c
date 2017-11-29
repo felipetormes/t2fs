@@ -46,6 +46,9 @@ void deleteFileOnFat(int fatIndex);
 void writeRecordAtEndOfFolder(char *path, Record newRecord);
 int getFreeFatEntry();
 void updateRecord(Handle hd);
+void changeSizeOfFolder(char *pathname, int increment);
+void changeSizeOfFile(char *pathname, int increment);
+
 
 /*
     Dado que pathname é o caminho de um arquivo, separa o mesmo em caminho para
@@ -54,8 +57,8 @@ void updateRecord(Handle hd);
 void sepName(char* pathname, char* filepath, char* filename)
 {
 
-	if(strcmp(pathname, "/")==0){
 
+	if(strcmp(pathname, "/")==0){
 		strcpy(filepath, "/");
     	strcpy(filename, "/");
 
@@ -362,7 +365,11 @@ FILE2 create2 (char *filename) {
     newFileRecord.bytesFileSize = 0;
     newFileRecord.firstCluster = getFreeFatEntry();
 
-    writeRecordAtEndOfFolder(filepath, newFileRecord);
+    sepName(filename, filepath, fname);
+	writeRecordAtEndOfFolder(filepath, newFileRecord);
+
+	sepName(filename, filepath, fname);
+	changeSizeOfFolder(filepath, sizeof(Record));
 
     closedir2(dirHandle);
 
@@ -555,7 +562,6 @@ int read2 (FILE2 handle, char *buffer, int size) {
 		}
 		memcpy(buffer+bufferOffset, &currentByte, 1);
 		
-		printf("%d\n", size);
 		size--;
 		bufferOffset++;
 	}
@@ -856,7 +862,7 @@ void incrementDotDotEntryOf(char *fatherPath, char *name, int increment) {
 	closedir2(handleFather);
 }
 
-void changeSizeOfFileOrFolder(char *pathname, int increment) {
+void changeSizeOfFolder(char *pathname, int increment) {
 
 	char fatherPath[MAX_FILE_NAME_SIZE];
 	char name[MAX_FILE_NAME_SIZE];
@@ -869,6 +875,18 @@ void changeSizeOfFileOrFolder(char *pathname, int increment) {
 
 	sepName(pathname, fatherPath, name);
 	incrementDotDotEntryOf(fatherPath, name, increment);
+}
+
+void changeSizeOfFile(char *pathname, int increment) {
+
+	char fatherPath[MAX_FILE_NAME_SIZE];
+	char name[MAX_FILE_NAME_SIZE];
+
+	sepName(pathname, fatherPath, name);
+	incrementSizeOfRecordFileFolderAt(fatherPath, name, increment);
+
+	sepName(pathname, fatherPath, name);
+	incrementDotEntryOf(fatherPath, increment);
 }
 
 void makeDotAndDotDotEntry(Record record, char *pathname) {
@@ -927,7 +945,7 @@ int mkdir2 (char *pathname) {
 
 	writeRecordAtEndOfFolder(pathname, newRecord);
 
-	changeSizeOfFileOrFolder(pathname, sizeof(Record));
+	changeSizeOfFolder(pathname, sizeof(Record));
 
 	makeDotAndDotDotEntry(newRecord, pathname);
 
@@ -1028,7 +1046,7 @@ int rmdir2 (char *pathname) {
 
 	sepName(pathname, fatherPath, name);
 
-	changeSizeOfFileOrFolder(pathname, -sizeof(Record));
+	changeSizeOfFolder(pathname, -sizeof(Record));
 
 	closedir2(handleFather);
 
