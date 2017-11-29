@@ -26,6 +26,7 @@ typedef struct handle_struct {
 	int firstFileFatEntry;
 	int currentPointer;
     Record rec;
+    char* parentDirPath;
 } Handle;
 
 Handle handleList[10];
@@ -34,11 +35,14 @@ BootPartition bootPartition;
 int isBootPartitionRead = FALSE;
 int CLUSTER_SIZE;
 
+char* currPath = NULL;
+
 Record readCurrentRecordOfHandle(DIR2 handle);
 int searchFreeHandleListIndex();
 void writeCurrentRecordOfHandle(DIR2 handle, Record record);
 int readFatEntry(int index);
 int fatToCluster(int fatIndex);
+void deleteFileOnFat(int fatIndex);
 
 /*
     Dado que pathname é o caminho de um arquivo, separa o mesmo em caminho para
@@ -272,7 +276,14 @@ void initHandleList() {
 
 		handleList[i].firstFileFatEntry = ERROR;
 		handleList[i].currentPointer = ERROR;
+        handleList[i].parentDirPath = NULL;
 	}
+}
+
+void initCurrPath() {
+    currPath = malloc(2 * sizeof(char));
+    currPath[0] = '/';
+    currPath[1] = '\0';
 }
 
 void init() {
@@ -281,6 +292,7 @@ void init() {
 
 		readBootPartition();
 		initHandleList();
+        initCurrPath();
 		isBootPartitionRead=TRUE;
 	}
 }
@@ -372,6 +384,8 @@ FILE2 open2 (char *filename) {
     handleList[handle].firstFileFatEntry = clusterToFat(record.firstCluster);
     handleList[handle].currentPointer = 0;
     handleList[handle].rec = record;
+    handleList[handle].parentDirPath = malloc(strlen(filepath));
+    strcpy(handleList[handle].parentDirPath, filepath);
 
 	return handle;
 }
@@ -381,6 +395,11 @@ int close2 (FILE2 handle) {
 
     handleList[handle].firstFileFatEntry = ERROR;
     handleList[handle].currentPointer = ERROR;
+    if(handleList[handle].parentDirPath != NULL)
+    {
+        free(handleList[handle].parentDirPath);
+        handleList[handle].parentDirPath = NULL;
+    }
 
 	return 0;
 }
@@ -408,40 +427,25 @@ int read2_1 (FILE2 handle, char *buffer, int size) {
     int currPointerInCurrCluster = hd.currentPointer % CLUSTER_SIZE;
 
     int currFat = hd.firstFileFatEntry;
-    printf("\ncurrFat: %d\n", currFat);
-
-    printf("\ncurrentPointer: %d\n", hd.currentPointer);
-    printf("availabeToRead: %d\n", availabeToRead);
-    printf("totalToRead: %d\n", totalToRead);
 
     // Navega pro cluster atual.
     int nClusters = hd.currentPointer / CLUSTER_SIZE;
     for(int i = 0; i != nClusters; ++i)
     {
-        printf("\nnext cluster...\n");
         currFat = readFatEntry(currFat);
 		if(currFat == CLUSTER_EOF)
         currClusterIndex = fatToCluster(currFat);
     }
-
-    printf("currClusterIndex: %d\n", currClusterIndex);
-    printf("currPointerInCurrCluster: %d\n", currPointerInCurrCluster);
 
     char* mainBuffer = malloc(totalToRead);
     mainBuffer[0] = '\0';
 
     do
     {
-        printf("\nreading...\n");
-        printf("\ncurrFat: %d\n", currFat);
         int availabeInCluster = CLUSTER_SIZE - currPointerInCurrCluster;
-
-        printf("availabeInCluster: %d\n", availabeInCluster);
 
         if(toRead > availabeInCluster)
         {
-            printf("\ntoRead > availabeInCluster\n");
-
             // Lê clsuter atual, prepara próximo.
             char buffer2[CLUSTER_SIZE];
             buffer2[0] = '\0';
@@ -453,16 +457,10 @@ int read2_1 (FILE2 handle, char *buffer, int size) {
             currClusterIndex = fatToCluster(currFat);
             currPointerInCurrCluster = 0;
 
-            printf("currFat: %d\n", currFat);
-            printf("currClusterIndex: %d\n", currClusterIndex);
-            printf("currPointerInCurrCluster: %d\n", currPointerInCurrCluster);
-
             toRead -= availabeInCluster;
         }
         else
         {
-            printf("\nREAD!\n");
-
             // Lê cluster.
             char buffer2[CLUSTER_SIZE];
             buffer2[0] = '\0';
@@ -544,6 +542,40 @@ int write2 (FILE2 handle, char *buffer, int size) {
 
 int truncate2 (FILE2 handle) {
 	init();
+
+    handleList[handle].rec.bytesFileSize = handleList[handle].currentPointer;  // Atualiza tamanho.
+
+    printf("\ntruncando a partir de %d\n", handleList[handle].currentPointer);
+
+    // Navega ate fat do cluster final para o novo tamanho.
+    int nClusters = handleList[handle].currentPointer / CLUSTER_SIZE;
+    int currFat = handleList[handle].firstFileFatEntry;
+    for(int i = 0; i != nClusters; ++i)
+    {
+        int nextFat = readFatEntry(currFat);
+        currFat = nextFat;
+    }
+
+    // Arquivo perdeu clusters a partir de 'currFat', remove.
+    if(currFat != handleList[handle].firstFileFatEntry)
+    {
+        deleteFileOnFat(currFat);
+    }
+
+    // Atualiza record no disco.
+    DIR2 dirHandle = opendir2(handleList[handle].parentDirPath);
+    DIRENT2 dirEnt;
+    while(readdir2(dirHandle, &dirEnt) != -END_OF_DIR)  // Vai para record.
+    {
+        if(strcmp(dirEnt.name, handleList[handle].rec.name) == 0)
+        {
+            break;
+        }
+    }
+    handleList[dirHandle].currentPointer -= sizeof(Record);
+    writeCurrentRecordOfHandle(dirHandle, handleList[handle].rec);
+    closedir2(dirHandle);
+
 	return 0;
 }
 
@@ -896,6 +928,7 @@ int chdir2 (char *pathname) {
 
 int getcwd2 (char *pathname, int size) {
 	init();
+    strncpy(pathname, currPath, size);
 	return 0;
 }
 
