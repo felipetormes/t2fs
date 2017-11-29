@@ -48,6 +48,7 @@ int getFreeFatEntry();
 void updateRecord(Handle hd);
 void changeSizeOfFolder(char *pathname, int increment);
 void changeSizeOfFile(char *pathname, int increment);
+void setCurrentPointerToFile(int grandFatherHandle, char *grandFatherName);
 
 
 /*
@@ -330,9 +331,9 @@ int dirHasFile(int dirHandle, char* fname)
         //printf("\nCould not find file %s\n", fname);
         return -1;
     }
-    else if(dirEnt.fileType != 0x01)     // Verifica tipo.
+    else if(dirEnt.fileType != TYPEVAL_DIRETORIO)     // Verifica tipo.
     {
-        printf("\n%s is a directory\n", fname);
+        printf("\n%s is not a directory\n", fname);
         return -1;
     }
 
@@ -365,11 +366,9 @@ FILE2 create2 (char *filename) {
     newFileRecord.bytesFileSize = 0;
     newFileRecord.firstCluster = getFreeFatEntry();
 
-    sepName(filename, filepath, fname);
-	writeRecordAtEndOfFolder(filepath, newFileRecord);
-
-	sepName(filename, filepath, fname);
-	changeSizeOfFolder(filepath, sizeof(Record));
+	changeSizeOfFolder(filename, sizeof(Record));
+    
+	writeRecordAtEndOfFolder(filename, newFileRecord);
 
     closedir2(dirHandle);
 
@@ -388,31 +387,14 @@ FILE2 open2 (char *filename) {
     char fname[100];
     sepName(filename, filepath, fname);
 
-    // Confere diretório pai.
     DIR2 dirHandle = opendir2(filepath);
-    if(dirHandle < 0)
-    {
-        printf("\nInvalid file path: %s\n", filename);
-        closedir2(dirHandle);
-        return -1;
-    }
 
-    // Procura arquivo.
-    int dirEntNum = dirHasFile(dirHandle, fname);
-    if(dirEntNum == -1)
-    {
-        closedir2(dirHandle);
-        printf("\nCould not find file %s in %s\n", fname, filepath);
-        return -1;
-    }
+	setCurrentPointerToFile(dirHandle, fname); 
 
     // Carrega Record do arquivo.
     Record record;
-    handleList[dirHandle].currentPointer -= sizeof(Record);
-    for(int i = 0; i < dirEntNum - 1; ++i)
-    {
-        record = readCurrentRecordOfHandle(dirHandle);
-    }
+    record = readCurrentRecordOfHandle(dirHandle);
+
     closedir2(dirHandle);
 
     // Cria handle para arquivo.
