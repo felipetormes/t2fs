@@ -554,44 +554,65 @@ int read2 (FILE2 handle, char *buffer, int size) {
 int write2 (FILE2 handle, char *buffer, int size) {
 	init();
 
-    int toWrite = size;
+    int totalToWrite = size;
     int written = 0;
+
+    int initialSize = handleList[handle].rec.bytesFileSize;
+    int initialPointer = handleList[handle].currentPointer;
 
     // Navega pro cluster atual.
     int currFat = handleList[handle].firstFileFatEntry;
     int currCluster = fatToCluster(currFat);
     int nClusters = handleList[handle].currentPointer / CLUSTER_SIZE;
+
+    int prevFat = -1;
     for(int i = 0; i != nClusters; ++i)
     {
+        prevFat = currFat;
         currFat = readFatEntry(currFat);
         currCluster = fatToCluster(currFat);
     }
 
-    while(written < toWrite)
+    if(currFat == CLUSTER_EOF)
+    {
+        // Solicita novo cluster.
+        int nextFat = clusterToFat(getFreeFatEntry());
+        changeFatEntryToType(prevFat, nextFat);
+        currFat = nextFat;
+        currCluster = fatToCluster(currFat);
+    }
+
+    int toWrite_ = totalToWrite;
+    while(written < totalToWrite)
     {
         int currPointerInCurrCluster = handleList[handle].currentPointer % CLUSTER_SIZE;
         int availabeInCurrCluster = CLUSTER_SIZE - currPointerInCurrCluster;
 
-        if(availabeInCurrCluster > toWrite)
+        toWrite_ = totalToWrite - written;
+
+        if(availabeInCurrCluster >= toWrite_)
         {
             // Todos dados cabem dentro do cluster, escreve.
             unsigned char previousClusterData[CLUSTER_SIZE];
             readCluster(currCluster, previousClusterData);
-            strncpy((char*)&previousClusterData[currPointerInCurrCluster], (char*)buffer, toWrite);
+            strncpy((char*)&previousClusterData[currPointerInCurrCluster], (char*)&buffer[written], toWrite_);
             writeCluster(currCluster, previousClusterData);
-            written += toWrite;
+            written += toWrite_;
+
+            handleList[handle].currentPointer += toWrite_;
         }
         else
         {
             // Escreve até encher cluster, solicita novo.
             unsigned char previousClusterData[CLUSTER_SIZE];
             readCluster(currCluster, previousClusterData);
-            strncpy((char*)&previousClusterData[currPointerInCurrCluster], (char*)buffer, availabeInCurrCluster);
+            strncpy((char*)&previousClusterData[currPointerInCurrCluster], (char*)&buffer[written], availabeInCurrCluster);
             writeCluster(currCluster, previousClusterData);
             written += availabeInCurrCluster;
 
-            int nextFat = readFatEntry(currFat);
+            handleList[handle].currentPointer += availabeInCurrCluster;
 
+            int nextFat = readFatEntry(currFat);
             if(nextFat == CLUSTER_EOF)
             {
                 // Solicita novo cluster.
@@ -603,16 +624,14 @@ int write2 (FILE2 handle, char *buffer, int size) {
             currFat = nextFat;
             currCluster = fatToCluster(currFat);
         }
+
+        currPointerInCurrCluster = handleList[handle].currentPointer % CLUSTER_SIZE;
+        availabeInCurrCluster = CLUSTER_SIZE - currPointerInCurrCluster;
     }
 
-    if(handleList[handle].currentPointer + written >= handleList[handle].rec.bytesFileSize)
+    if(initialPointer + written > initialSize)
     {
-        handleList[handle].rec.bytesFileSize = handleList[handle].currentPointer + written;
-        handleList[handle].currentPointer = handleList[handle].rec.bytesFileSize;
-    }
-    else
-    {
-        handleList[handle].currentPointer = handleList[handle].currentPointer + written;
+        handleList[handle].rec.bytesFileSize = handleList[handle].currentPointer;
     }
 
     updateRecord(handleList[handle]);
