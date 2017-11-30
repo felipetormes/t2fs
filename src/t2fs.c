@@ -1055,6 +1055,41 @@ void deleteFileOnFat(int fatIndex) {
 
 int rmdir2 (char *pathname) {
 	init();
+	printf("removing %s\n", pathname);
+
+	int recursiveHandle = opendir2(pathname);
+
+	DIRENT2 aux;
+	while(readdir2(recursiveHandle, &aux) == 0) {
+		
+		char *childPath = (char*)malloc(1000);
+		strcpy(childPath, pathname);
+		strcat(childPath, "/");
+		strcat(childPath, aux.name);
+
+		if(strcmp(aux.name, ".") != 0 && strcmp(aux.name, "..") != 0) {
+
+			printf("indo recursao em %s\n", childPath);
+			switch(aux.fileType) {
+
+				case TYPEVAL_REGULAR: {
+					delete2(childPath);
+					break;
+				}
+				case TYPEVAL_DIRETORIO: {
+					rmdir2(childPath);
+					break;
+				}
+				default:{
+					printf("DEFAULT: %s\n", aux.name);
+				}
+			}
+		}
+		free(childPath);
+	}
+
+	closedir2(recursiveHandle);
+
 
 	//separating the path
 	char fatherPath[MAX_FILE_NAME_SIZE];
@@ -1064,7 +1099,7 @@ int rmdir2 (char *pathname) {
 	//opening father
 	int handleFather = opendir2(fatherPath);
 
-	DIRENT2 aux;
+	//DIRENT2 aux;
 	//till we find the one
 	while(strcmp(aux.name, name)) {
 
