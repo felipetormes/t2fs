@@ -680,7 +680,9 @@ void cmdSeek(void) {
 }
 
 void cmdChDir(void) {
+    char *token = strtok(NULL," \t");
 
+    chdir2(token);
 }
 
 void cmdGetCwd(void) {

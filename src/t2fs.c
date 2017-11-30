@@ -269,7 +269,7 @@ void initHandleList() {
 
 void initCurrPath() {
     currPath = malloc(2 * sizeof(char));
-    currPath[0] = '/';
+		currPath[0] = '/';
     currPath[1] = '\0';
 }
 
@@ -402,7 +402,8 @@ FILE2 open2 (char *filename) {
     // Carrega Record do arquivo.
     Record record;
     handleList[dirHandle].currentPointer -= sizeof(Record);
-    for(int i = 0; i < dirEntNum - 1; ++i)
+		int i;
+    for(i = 0; i < dirEntNum - 1; ++i)
     {
         record = readCurrentRecordOfHandle(dirHandle);
     }
@@ -459,7 +460,8 @@ int read2_1 (FILE2 handle, char *buffer, int size) {
 
     // Navega pro cluster atual.
     int nClusters = hd.currentPointer / CLUSTER_SIZE;
-    for(int i = 0; i != nClusters; ++i)
+		int i;
+    for(i = 0; i != nClusters; ++i)
     {
         currFat = readFatEntry(currFat);
         currCluster = fatToCluster(currFat);
@@ -554,12 +556,12 @@ int read2 (FILE2 handle, char *buffer, int size) {
 			break;
 		}
 		memcpy(buffer+bufferOffset, &currentByte, 1);
-		
+
 		printf("%d\n", size);
 		size--;
 		bufferOffset++;
 	}
-	
+
 	return bufferOffset;
 }
 
@@ -573,7 +575,8 @@ int write2 (FILE2 handle, char *buffer, int size) {
     int currFat = handleList[handle].firstFileFatEntry;
     int currCluster = fatToCluster(currFat);
     int nClusters = handleList[handle].currentPointer / CLUSTER_SIZE;
-    for(int i = 0; i != nClusters; ++i)
+		int i;
+    for(i = 0; i != nClusters; ++i)
     {
         currFat = readFatEntry(currFat);
         currCluster = fatToCluster(currFat);
@@ -659,7 +662,8 @@ int truncate2 (FILE2 handle) {
     // Navega ate fat do cluster final para o novo tamanho.
     int nClusters = handleList[handle].currentPointer / CLUSTER_SIZE;
     int currFat = handleList[handle].firstFileFatEntry;
-    for(int i = 0; i != nClusters; ++i)
+		int i;
+    for(i = 0; i != nClusters; ++i)
     {
         int nextFat = readFatEntry(currFat);
         currFat = nextFat;
@@ -1037,6 +1041,27 @@ int rmdir2 (char *pathname) {
 
 int chdir2 (char *pathname) {
 	init();
+	DIR2 handle;
+
+	char fatherPath[MAX_FILE_NAME_SIZE];
+	char name[MAX_FILE_NAME_SIZE];
+	sepName(pathname, fatherPath, name);
+
+	handle = opendir2(name);
+
+	if(handle != ERROR) {
+		if(strcmp(pathname,"..") == 0) {
+			strcpy(currPath,fatherPath);
+		}
+		else if(strcmp(pathname,".") == 0) {
+			strcpy(currPath,currPath);
+		}
+		else {
+			strcat(pathname, "/");
+			strcat(currPath, pathname);
+		}
+	}
+
 	return 0;
 }
 
