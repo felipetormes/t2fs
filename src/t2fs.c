@@ -360,14 +360,14 @@ FILE2 create2 (char *filename) {
     }
 
     Record newFileRecord;
-    newFileRecord.TypeVal = 0x01;
+    newFileRecord.TypeVal = TYPEVAL_REGULAR;
     newFileRecord.name[0] = '\0';
     strcpy(newFileRecord.name, fname);
     newFileRecord.bytesFileSize = 0;
     newFileRecord.firstCluster = getFreeFatEntry();
 
 	changeSizeOfFolder(filename, sizeof(Record));
-    
+
 	writeRecordAtEndOfFolder(filename, newFileRecord);
 
     closedir2(dirHandle);
@@ -377,7 +377,7 @@ FILE2 create2 (char *filename) {
 
 int delete2 (char *pathname) {
 	init();
-	
+
 	//separating the path
 	char fatherPath[MAX_FILE_NAME_SIZE];
 	char name[MAX_FILE_NAME_SIZE];
@@ -388,9 +388,11 @@ int delete2 (char *pathname) {
 
 	DIRENT2 aux;
 	//till we find the one
-	while(strcmp(aux.name, name)) {
+    // One Does Not Simply Walk into T2FS
+    int dirStatus;
+	while(strcmp(aux.name, name) != 0) {
 
-		if(readdir2(handleFather, &aux)!=0) {
+		if((dirStatus = readdir2(handleFather, &aux)) != 0) {
 
 			break;
 		}
@@ -400,7 +402,8 @@ int delete2 (char *pathname) {
 		printf("ERROR, you cant delete a file that doesn't exist.\n");
 	}
 
-	handleList[handleFather].currentPointer -= sizeof(Record);//to get back to the previous empty space
+	handleList[handleFather].currentPointer -= sizeof(Record);//to get back to the ONE
+    int deletedCurrPointer = handleList[handleFather].currentPointer; // guard currpointer do deleteado.
 
 	Record fatherRecord = readCurrentRecordOfHandle(handleFather);
 
@@ -410,36 +413,37 @@ int delete2 (char *pathname) {
 		return ERROR;
 	}
 
-	//Delete fat entries
+	//Delete fat entries of the ONE
 	int fatIndex = clusterToFat(fatherRecord.firstCluster);
 	deleteFileOnFat(fatIndex);
 
-	//guarda currentPointer
-	int middlePointer = handleList[handleFather].currentPointer;
-
-	//pego o ultimo file/folder
-	handleList[handleFather].currentPointer = 0;
-	while(readdir2(handleFather, &aux)==0);
-	handleList[handleFather].currentPointer -= 2*sizeof(Record);//to get back to the previous NOT empty space
-	Record lastRecord = readCurrentRecordOfHandle(handleFather);
-
-	Record record;
-	record.TypeVal = TYPEVAL_INVALIDO;
-
-	if(handleList[handleFather].currentPointer == middlePointer) {
-
-		//seto ele pra free/invalido
-		writeCurrentRecordOfHandle(handleFather, record);
-
-	} else {
-
-		//seto ele pra free/invalido
-		writeCurrentRecordOfHandle(handleFather, record);
-
-		//volto pro index e seto o ultim, pra n deixar falhas
-		handleList[handleFather].currentPointer = middlePointer;
-		writeCurrentRecordOfHandle(handleFather, lastRecord);
+	//pego o ultimo file/folder a partir do deletado
+    while(dirStatus != -END_OF_DIR) {
+		dirStatus = readdir2(handleFather, &aux);
 	}
+    handleList[handleFather].currentPointer -= 2*sizeof(Record); //to get back to the last valid
+    int lastCurrPointer = handleList[handleFather].currentPointer;
+    Record lastRecord = readCurrentRecordOfHandle(handleFather);
+
+	if(handleList[handleFather].currentPointer == deletedCurrPointer)
+    {
+        // Deletado era o último, basta marcar como inválido.
+        Record record;
+    	record.TypeVal = TYPEVAL_INVALIDO;
+        writeCurrentRecordOfHandle(handleFather, record);
+    }
+    else
+    {
+        // Coloca último no lugar do deleteado.
+        handleList[handleFather].currentPointer = deletedCurrPointer;
+        writeCurrentRecordOfHandle(handleFather, lastRecord);
+
+        // Invalida último.
+        Record record;
+    	record.TypeVal = TYPEVAL_INVALIDO;
+        handleList[handleFather].currentPointer = lastCurrPointer;
+        writeCurrentRecordOfHandle(handleFather, record);
+    }
 
 	sepName(pathname, fatherPath, name);
 
@@ -459,7 +463,7 @@ FILE2 open2 (char *filename) {
 
     DIR2 dirHandle = opendir2(filepath);
 
-	setCurrentPointerToFile(dirHandle, fname); 
+	setCurrentPointerToFile(dirHandle, fname);
 
     // Carrega Record do arquivo.
     Record record;
@@ -613,11 +617,11 @@ int read2 (FILE2 handle, char *buffer, int size) {
 			break;
 		}
 		memcpy(buffer+bufferOffset, &currentByte, 1);
-		
+
 		size--;
 		bufferOffset++;
 	}
-	
+
 	return bufferOffset;
 }
 
